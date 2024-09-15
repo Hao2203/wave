@@ -1,0 +1,17 @@
+[package]
+name = "wave-session"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wave-core = { path = "../wave-core" }
+iroh = { workspace = true }
+derive_more = { version = "*", features = [
+    "from",
+    "display",
+    "as_ref",
+    "as_mut",
+] }
+zerocopy = { version = "0.7", features = ["derive"] }
+serde_bytes = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

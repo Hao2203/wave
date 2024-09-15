@@ -1,0 +1,13 @@
+[package]
+name = "wave-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iroh = { workspace = true }
+derive_more = { version = "*", features = [
+    "from",
+    "display",
+    "as_ref",
+    "as_mut",
+] }
