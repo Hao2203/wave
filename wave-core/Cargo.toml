@@ -11,3 +11,11 @@ derive_more = { version = "*", features = [
     "as_ref",
     "as_mut",
 ] }
+
+serde_bytes = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+anyhow = { workspace = true }
+
+tokio = { workspace = true, features = [] }
+futures = { workspace = true }

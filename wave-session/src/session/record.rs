@@ -8,11 +8,17 @@ use super::*;
 #[as_ref(forward)]
 #[repr(C)]
 #[serde(transparent)]
-pub struct RecordId(#[serde(with = "serde_bytes")] [u8; 32]);
+pub struct RecordsId(#[serde(with = "serde_bytes")] [u8; 32]);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Record {
-    pub id: RecordId,
-    pub content: ByteBuf,
+    pub id: RecordsId,
+    pub content: Content,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Content {
+    Text(String),
+    Binary(ByteBuf),
 }

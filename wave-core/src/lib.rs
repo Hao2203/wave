@@ -1,50 +1,36 @@
-use derive_more::{AsMut, AsRef, From};
-use iroh::net::key::PublicKey;
+use anyhow::Result;
+use serde::{de::DeserializeOwned, Serialize};
+use std::future::Future;
 
-#[derive(Debug, From, AsRef)]
-#[from(forward)]
-pub struct NodeId {
-    #[as_ref(forward)]
-    key: PublicKey,
+pub mod node;
+
+pub trait Entity {
+    type Id: AsRef<[u8; 32]>;
+    type Data: Serialize + DeserializeOwned + Send + Sync;
 }
 
-impl NodeId {
-    pub fn new(key: PublicKey) -> Self {
-        Self { key }
-    }
+pub trait EntityStore<E: Entity> {
+    fn get_all(&self) -> impl Future<Output = Result<Vec<E::Id>>> + Send;
 
-    pub fn key(&self) -> &PublicKey {
-        &self.key
-    }
+    fn get(&self, id: &E::Id) -> impl Future<Output = Result<Option<E::Data>>> + Send;
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        self.key.as_bytes()
-    }
+    fn insert(&self, data: &E::Data) -> impl Future<Output = Result<E::Id>> + Send;
 
-    pub fn as_slice(&self) -> &[u8] {
-        self.key.as_ref()
-    }
+    fn delete(&self, id: &E::Id) -> impl Future<Output = Result<()>> + Send;
+
+    fn check(&self, id: &E::Id) -> impl Future<Output = Result<bool>> + Send;
 }
 
-#[derive(Debug, AsRef, AsMut)]
-pub struct NodeList {
-    #[as_ref(forward)]
-    #[as_mut(forward)]
-    list: Vec<NodeId>,
-}
+pub trait EntityList<E: Entity> {
+    type ListId: AsRef<[u8; 32]>;
 
-impl NodeList {
-    pub fn new() -> Self {
-        Self { list: Vec::new() }
-    }
+    fn create(&self) -> impl Future<Output = Result<Self::ListId>> + Send;
 
-    pub fn count(&self) -> usize {
-        self.list.len()
-    }
-}
+    fn push(
+        &self,
+        list_id: &Self::ListId,
+        data: E::Data,
+    ) -> impl Future<Output = Result<E::Id>> + Send;
 
-impl Default for NodeList {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn list(&self, list_id: &Self::ListId) -> impl Future<Output = Result<Vec<E::Id>>> + Send;
 }

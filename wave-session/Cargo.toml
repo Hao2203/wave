@@ -15,3 +15,5 @@ derive_more = { version = "*", features = [
 zerocopy = { version = "0.7", features = ["derive"] }
 serde_bytes = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+
+anyhow = { workspace = true }

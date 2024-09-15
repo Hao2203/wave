@@ -4578,14 +4578,20 @@ dependencies = [
 name = "wave-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "derive_more 0.99.18",
+ "futures",
  "iroh",
+ "serde",
+ "serde_bytes",
+ "tokio",
 ]
 
 [[package]]
 name = "wave-session"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "derive_more 0.99.18",
  "iroh",
  "serde",

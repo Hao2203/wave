@@ -1,31 +1,37 @@
 use derive_more::AsRef;
-use wave_core::NodeList;
+use serde::{Deserialize, Serialize};
+use wave_core::{node::NodeList, Entity};
 
 pub mod record;
 
 #[derive(Debug, AsRef)]
-#[as_ref(forward)]
+#[as_ref([u8], [u8; 32])]
 pub struct SessionId([u8; 32]);
 
 #[derive(Debug)]
 pub struct Session {
     id: SessionId,
-    nodes: NodeList,
+    data: SessionData,
 }
 
 impl Session {
-    pub fn create(id: SessionId) -> Self {
-        Self {
-            id,
-            nodes: NodeList::new(),
-        }
+    pub fn create(id: SessionId, data: SessionData) -> Self {
+        Self { id, data }
     }
 
     pub fn id(&self) -> &SessionId {
         &self.id
     }
 
-    pub fn nodes(&self) -> &NodeList {
-        &self.nodes
+    pub fn data(&self) -> &SessionData {
+        &self.data
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionData {}
+
+impl Entity for Session {
+    type Id = SessionId;
+    type Data = SessionData;
 }
