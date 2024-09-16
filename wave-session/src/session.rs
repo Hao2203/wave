@@ -2,8 +2,6 @@ use derive_more::AsRef;
 use serde::{Deserialize, Serialize};
 use wave_core::{node::NodeList, Entity};
 
-pub mod record;
-
 #[derive(Debug, AsRef)]
 #[as_ref([u8], [u8; 32])]
 pub struct SessionId([u8; 32]);
