@@ -6,6 +6,12 @@ use wave_core::{node::NodeList, Entity};
 #[as_ref([u8], [u8; 32])]
 pub struct SessionId([u8; 32]);
 
+impl SessionId {
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
 #[derive(Debug)]
 pub struct Session {
     id: SessionId,
@@ -27,9 +33,6 @@ impl Session {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SessionData {}
-
-impl Entity for Session {
-    type Id = SessionId;
-    type Data = SessionData;
+pub struct SessionData {
+    name: String,
 }

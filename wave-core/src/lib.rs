@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::Result;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -13,4 +15,8 @@ pub trait BlobStore {
     async fn insert(&self, data: &[u8]) -> Result<[u8; 32]>;
 
     async fn read(&self, id: &[u8; 32]) -> Result<Vec<u8>>;
+}
+
+pub trait Key {
+    fn key(&self) -> Cow<str>;
 }

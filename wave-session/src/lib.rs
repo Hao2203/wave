@@ -6,3 +6,5 @@ use std::future::Future;
 
 pub mod record;
 pub mod session;
+
+pub trait SessionStore {}
