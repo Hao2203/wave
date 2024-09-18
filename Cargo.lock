@@ -4579,6 +4579,7 @@ name = "wave-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "derive_more 0.99.18",
  "futures",
  "iroh",
@@ -4593,9 +4594,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_more 0.99.18",
+ "futures",
  "iroh",
  "serde",
  "serde_bytes",
+ "serde_json",
  "thiserror",
  "tracing",
 ]

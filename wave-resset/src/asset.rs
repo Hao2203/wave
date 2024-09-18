@@ -35,7 +35,7 @@ impl Assets {
         let path_to_remove: Vec<_> = self.file_list.keys().cloned().collect();
 
         for path in &path_to_remove {
-            self.file_list.remove(path);
+            self.remove_file(path);
         }
 
         path_to_remove

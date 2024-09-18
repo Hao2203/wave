@@ -19,3 +19,4 @@ anyhow = { workspace = true }
 
 tokio = { workspace = true, features = [] }
 futures = { workspace = true }
+async-trait = { workspace = true }
