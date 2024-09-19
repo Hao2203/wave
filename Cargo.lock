@@ -3641,6 +3641,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_qs"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd34f36fe4c5ba9654417139a9b3a20d2e1de6012ee678ad14d240c22c78d8d6"
+dependencies = [
+ "percent-encoding",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4592,12 +4603,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "derive_more 0.99.18",
  "futures",
  "iroh",
  "serde",
  "serde_bytes",
+ "serde_qs",
  "tokio",
+ "ulid",
 ]
 
 [[package]]

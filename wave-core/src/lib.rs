@@ -1,9 +1,11 @@
-use std::borrow::Cow;
-
 use anyhow::Result;
 use serde::{de::DeserializeOwned, Serialize};
+use std::borrow::Cow;
 
+pub mod author;
+pub mod messages;
 pub mod node;
+pub mod resource;
 
 pub trait Entity {
     type Id: AsRef<[u8; 32]>;
