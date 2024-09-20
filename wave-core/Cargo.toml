@@ -14,13 +14,14 @@ derive_more = { version = "*", features = [
 
 serde_bytes = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_qs = { version = "0.13" }
+rmp-serde = "1.3"
 
 anyhow = { workspace = true }
 
 tokio = { workspace = true, features = [] }
 futures = { workspace = true }
 async-trait = { workspace = true }
+async-stream = { workspace = true }
 
 ulid = { version = "1.1", features = ["serde"] }
 

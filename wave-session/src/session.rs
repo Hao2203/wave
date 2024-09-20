@@ -1,6 +1,8 @@
 use derive_more::AsRef;
 use serde::{Deserialize, Serialize};
-use wave_core::{node::NodeList, Entity};
+
+pub mod actor;
+pub mod client;
 
 #[derive(Debug, AsRef)]
 #[as_ref([u8], [u8; 32])]
