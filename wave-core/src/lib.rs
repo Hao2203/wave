@@ -5,3 +5,6 @@ pub mod author;
 pub mod node;
 pub mod resource;
 pub mod topic;
+
+#[cfg(test)]
+mod test;
