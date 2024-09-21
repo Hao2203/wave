@@ -1,5 +1,5 @@
 [workspace]
-members = ["wave-core", "wave-resset", "wave-session"]
+members = ["wave", "wave-core", "wave-resset", "wave-session"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -35,4 +35,4 @@ rbs = "4.5.18"
 chrono = "0.4.38"
 moka = "0.12.8"
 
-iroh = "0.24"
+iroh = "0.25"
