@@ -1,10 +1,13 @@
 use derive_more::AsRef;
+use iroh::docs::NamespaceId;
 use serde::{Deserialize, Serialize};
+
+use crate::error::{ErrorKind, Result};
 
 pub mod actor;
 pub mod client;
 
-#[derive(Debug, AsRef)]
+#[derive(Debug, Clone, Copy, AsRef, Serialize, Deserialize)]
 #[as_ref([u8], [u8; 32])]
 pub struct SessionId([u8; 32]);
 
@@ -14,27 +17,46 @@ impl SessionId {
     }
 }
 
-#[derive(Debug)]
+impl From<SessionId> for NamespaceId {
+    fn from(id: SessionId) -> Self {
+        id.0.into()
+    }
+}
+
+impl From<NamespaceId> for SessionId {
+    fn from(id: NamespaceId) -> Self {
+        Self(id.into())
+    }
+}
+
+impl From<[u8; 32]> for SessionId {
+    fn from(id: [u8; 32]) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&[u8; 32]> for SessionId {
+    fn from(id: &[u8; 32]) -> Self {
+        Self(*id)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Session {
     id: SessionId,
-    data: SessionData,
+    name: String,
 }
 
 impl Session {
-    pub fn create(id: SessionId, data: SessionData) -> Self {
-        Self { id, data }
+    pub fn new(id: SessionId, name: String) -> Result<Self> {
+        if name.len() > 64 {
+            return Err(ErrorKind::SessionNameTooLong.into());
+        }
+
+        Ok(Self { id, name })
     }
 
     pub fn id(&self) -> &SessionId {
         &self.id
     }
-
-    pub fn data(&self) -> &SessionData {
-        &self.data
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SessionData {
-    name: String,
 }

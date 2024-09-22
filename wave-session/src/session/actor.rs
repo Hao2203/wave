@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::*;
 use crate::message::{content::Content, Message};
 use async_channel::{Receiver, Sender};
