@@ -9,6 +9,7 @@ use iroh::{
     },
     docs::store::Query,
 };
+use serde::{de::DeserializeOwned, Serialize};
 use ulid::Ulid;
 
 #[async_trait::async_trait]
