@@ -17,9 +17,8 @@ where
     T: wave_core::MakeStore,
 {
     pub async fn create_session(&self, name: &str) -> Result<Session> {
-        let doc = self.store.make(&self.author).await?;
-        let id = SessionId::from(doc.id().as_ref());
-        let session = Session::new(id, name.to_string())?;
+        let (id, doc) = self.store.make(&self.author).await?;
+        let session = Session::new(id.as_ref().into(), name.to_string())?;
         doc.insert("name", &name).await?;
         Ok(session)
     }
