@@ -7,7 +7,9 @@ use crate::error::{ErrorKind, Result};
 pub mod actor;
 pub mod client;
 
-#[derive(Debug, Clone, Copy, AsRef, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Serialize, Deserialize,
+)]
 #[as_ref([u8], [u8; 32])]
 pub struct SessionId([u8; 32]);
 
@@ -41,7 +43,7 @@ impl From<&[u8; 32]> for SessionId {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     id: SessionId,
     name: String,

@@ -4657,21 +4657,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wave-resset"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "derive_more 0.99.18",
- "futures",
- "iroh",
- "serde",
- "serde_bytes",
- "serde_json",
- "thiserror",
- "tracing",
-]
-
-[[package]]
 name = "wave-session"
 version = "0.1.0"
 dependencies = [

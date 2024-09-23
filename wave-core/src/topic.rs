@@ -137,7 +137,7 @@ mod test {
 
     #[tokio::test]
     async fn test_topic() -> anyhow::Result<()> {
-        let wave = WaveClient::new().await?;
+        let wave = WaveClient::mock().await?;
         let client = Client::mock(wave.node()).await?;
         let msg = "hello".to_string();
         let author = wave.make_author().await?;

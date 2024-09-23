@@ -1,9 +1,42 @@
-use crate::author::Author;
+use super::*;
 use anyhow::Result;
+use author::Author;
 use bytes::Bytes;
 use iroh::docs::store::Query;
 use serde::{de::DeserializeOwned, Serialize};
 use std::future::Future;
+
+pub trait MakeStore {
+    type Id: AsRef<[u8; 32]> + Send;
+    type Store: KVStore + Send;
+
+    fn make(&self, author: &Author)
+        -> impl Future<Output = Result<(Self::Id, Self::Store)>> + Send;
+
+    fn get_store(
+        &self,
+        author: &Author,
+        id: impl AsRef<[u8; 32]> + Send,
+    ) -> impl Future<Output = Result<Option<Self::Store>>> + Send;
+}
+
+impl MakeStore for WaveClient {
+    type Store = DocStore;
+    type Id = NamespaceId;
+    async fn make(&self, author: &Author) -> Result<(Self::Id, Self::Store)> {
+        let doc = self.node().docs().create().await?;
+        Ok((doc.id(), DocStore::new(doc, *author.id())))
+    }
+
+    async fn get_store(
+        &self,
+        author: &Author,
+        id: impl AsRef<[u8; 32]>,
+    ) -> Result<Option<Self::Store>> {
+        let doc = self.node().docs().open(id.as_ref().into()).await?;
+        Ok(doc.map(|doc| DocStore::new(doc, *author.id())))
+    }
+}
 
 pub trait KVStore {
     fn insert(
@@ -18,20 +51,6 @@ pub trait KVStore {
     ) -> impl Future<Output = Result<Option<T>>> + Send
     where
         T: DeserializeOwned;
-}
-
-pub trait MakeStore {
-    type Id: AsRef<[u8; 32]> + Send;
-    type Store: KVStore + Send;
-
-    fn make(&self, author: &Author)
-        -> impl Future<Output = Result<(Self::Id, Self::Store)>> + Send;
-
-    fn get_store(
-        &self,
-        author: &Author,
-        id: impl AsRef<[u8; 32]> + Send,
-    ) -> impl Future<Output = Result<Option<Self::Store>>> + Send;
 }
 
 pub struct DocStore {

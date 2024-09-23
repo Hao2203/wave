@@ -23,14 +23,15 @@ where
         Ok(session)
     }
 
-    pub async fn get_session(&self, id: SessionId) -> Result<Option<Session>> {
+    pub async fn get_session(&self, id: &SessionId) -> Result<Option<Session>> {
         let doc = self.store.get_store(&self.author, id).await?;
+
         if let Some(doc) = doc {
             let name = doc.get("name").await?;
-            name.map(|name| Session::new(id, name)).transpose()
-        } else {
-            Ok(None)
-        }
+            return name.map(|name| Session::new(*id, name)).transpose();
+        };
+
+        Ok(None)
     }
 }
 
@@ -38,4 +39,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wave_core::WaveClient;
+
+    #[tokio::test]
+    async fn test() -> Result<()> {
+        let client = WaveClient::mock().await?;
+        let author = client.make_author().await?;
+        let client = Client {
+            store: &client,
+            author,
+        };
+        let session = client.create_session("test").await?;
+        let res = client.get_session(session.id()).await?;
+        assert_eq!(session, res.unwrap());
+        Ok(())
+    }
 }
