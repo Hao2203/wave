@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::Result;
-use author::{Author, CurrentAuthor};
+use author::Author;
 use bytes::Bytes;
 use iroh::docs::store::Query;
 use serde::{de::DeserializeOwned, Serialize};
@@ -75,17 +75,6 @@ pub trait KVStore {
         T: DeserializeOwned;
 }
 
-pub struct DocStore<'a> {
-    doc: iroh::client::docs::Doc,
-    author: &'a Author,
-}
-
-impl<'a> DocStore<'a> {
-    pub fn new(doc: iroh::client::docs::Doc, author: &'a Author) -> Self {
-        Self { doc, author }
-    }
-}
-
 impl<'a> KVStore for DocStore<'a> {
     async fn get<T>(&self, key: impl Into<Bytes>) -> Result<Option<T>>
     where
@@ -107,11 +96,5 @@ impl<'a> KVStore for DocStore<'a> {
             .set_bytes(*self.author.id(), key, rmp_serde::to_vec(&value)?)
             .await?;
         Ok(())
-    }
-}
-
-impl CurrentAuthor for DocStore<'_> {
-    fn current_author(&self) -> &Author {
-        self.author
     }
 }

@@ -1,3 +1,4 @@
+use super::*;
 use anyhow::Result;
 use iroh::docs::AuthorId;
 use serde::{Deserialize, Serialize};
@@ -46,5 +47,11 @@ impl Author {
 impl CurrentAuthor for Author {
     fn current_author(&self) -> &Author {
         self
+    }
+}
+
+impl CurrentAuthor for DocStore<'_> {
+    fn current_author(&self) -> &Author {
+        self.author
     }
 }

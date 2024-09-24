@@ -33,3 +33,14 @@ impl WaveClient {
         Ok(Author::new(id))
     }
 }
+
+pub struct DocStore<'a> {
+    doc: iroh::client::docs::Doc,
+    author: &'a Author,
+}
+
+impl<'a> DocStore<'a> {
+    pub fn new(doc: iroh::client::docs::Doc, author: &'a Author) -> Self {
+        Self { doc, author }
+    }
+}
