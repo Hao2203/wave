@@ -1,5 +1,24 @@
+use anyhow::Result;
 use iroh::docs::AuthorId;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
+
+pub trait AuthorStore {
+    fn default_author(&self) -> impl Future<Output = Result<Author>> + Send;
+
+    fn make_author(&self) -> impl Future<Output = Result<Author>> + Send;
+}
+
+impl<T: iroh::blobs::store::Store> AuthorStore for iroh::node::Node<T> {
+    async fn default_author(&self) -> Result<Author> {
+        let id = self.authors().default().await?;
+        Ok(Author { id })
+    }
+    async fn make_author(&self) -> Result<Author> {
+        let id = self.authors().create().await?;
+        Ok(Author { id })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Author {

@@ -38,6 +38,23 @@ impl MakeStore for WaveClient {
     }
 }
 
+impl<T: iroh::blobs::store::Store> MakeStore for iroh::node::Node<T> {
+    type Id = NamespaceId;
+    type Store = DocStore;
+    async fn get_store(
+        &self,
+        author: &Author,
+        id: impl AsRef<[u8; 32]> + Send,
+    ) -> Result<Option<Self::Store>> {
+        let doc = self.docs().open(id.as_ref().into()).await?;
+        Ok(doc.map(|doc| DocStore::new(doc, *author.id())))
+    }
+    async fn make(&self, author: &Author) -> Result<(Self::Id, Self::Store)> {
+        let doc = self.docs().create().await?;
+        Ok((doc.id(), DocStore::new(doc, *author.id())))
+    }
+}
+
 pub trait KVStore {
     fn insert(
         &self,

@@ -39,11 +39,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wave_core::WaveClient;
+    use wave_core::{author::AuthorStore, WaveClient};
 
     #[tokio::test]
     async fn test() -> Result<()> {
-        let client = WaveClient::mock().await?;
+        let client = iroh::node::MemNode::memory().spawn().await?;
         let author = client.make_author().await?;
         let client = Client {
             store: &client,
