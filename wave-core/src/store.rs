@@ -8,50 +8,55 @@ use std::future::Future;
 
 pub trait MakeStore {
     type Id: AsRef<[u8; 32]> + Send;
-    type Store: KVStore + Send;
+    type Store<'a>: KVStore + Send + 'a;
 
-    fn make(&self, author: &Author)
-        -> impl Future<Output = Result<(Self::Id, Self::Store)>> + Send;
-
-    fn get_store(
+    fn make<'a>(
         &self,
-        author: &Author,
+        author: &'a Author,
+    ) -> impl Future<Output = Result<(Self::Id, Self::Store<'a>)>> + Send;
+
+    fn get_store<'a>(
+        &self,
+        author: &'a Author,
         id: impl AsRef<[u8; 32]> + Send,
-    ) -> impl Future<Output = Result<Option<Self::Store>>> + Send;
+    ) -> impl Future<Output = Result<Option<Self::Store<'a>>>> + Send;
 }
 
 impl MakeStore for WaveClient {
-    type Store = DocStore;
+    type Store<'a> = DocStore<'a>;
     type Id = NamespaceId;
-    async fn make(&self, author: &Author) -> Result<(Self::Id, Self::Store)> {
+
+    async fn make<'a>(&self, author: &'a Author) -> Result<(Self::Id, Self::Store<'a>)> {
         let doc = self.node().docs().create().await?;
-        Ok((doc.id(), DocStore::new(doc, *author.id())))
+        Ok((doc.id(), DocStore::new(doc, author.id())))
     }
 
-    async fn get_store(
+    async fn get_store<'a>(
         &self,
-        author: &Author,
+        author: &'a Author,
         id: impl AsRef<[u8; 32]>,
-    ) -> Result<Option<Self::Store>> {
+    ) -> Result<Option<Self::Store<'a>>> {
         let doc = self.node().docs().open(id.as_ref().into()).await?;
-        Ok(doc.map(|doc| DocStore::new(doc, *author.id())))
+        Ok(doc.map(|doc| DocStore::new(doc, author.id())))
     }
 }
 
 impl<T: iroh::blobs::store::Store> MakeStore for iroh::node::Node<T> {
     type Id = NamespaceId;
-    type Store = DocStore;
-    async fn get_store(
+    type Store<'a> = DocStore<'a>;
+
+    async fn get_store<'a>(
         &self,
-        author: &Author,
+        author: &'a Author,
         id: impl AsRef<[u8; 32]> + Send,
-    ) -> Result<Option<Self::Store>> {
+    ) -> Result<Option<Self::Store<'a>>> {
         let doc = self.docs().open(id.as_ref().into()).await?;
-        Ok(doc.map(|doc| DocStore::new(doc, *author.id())))
+        Ok(doc.map(|doc| DocStore::new(doc, author.id())))
     }
-    async fn make(&self, author: &Author) -> Result<(Self::Id, Self::Store)> {
+
+    async fn make<'a>(&self, author: &'a Author) -> Result<(Self::Id, Self::Store<'a>)> {
         let doc = self.docs().create().await?;
-        Ok((doc.id(), DocStore::new(doc, *author.id())))
+        Ok((doc.id(), DocStore::new(doc, author.id())))
     }
 }
 
@@ -70,18 +75,18 @@ pub trait KVStore {
         T: DeserializeOwned;
 }
 
-pub struct DocStore {
+pub struct DocStore<'a> {
     doc: iroh::client::docs::Doc,
-    author_id: iroh::docs::AuthorId,
+    author_id: &'a iroh::docs::AuthorId,
 }
 
-impl DocStore {
-    pub fn new(doc: iroh::client::docs::Doc, author_id: iroh::docs::AuthorId) -> Self {
+impl<'a> DocStore<'a> {
+    pub fn new(doc: iroh::client::docs::Doc, author_id: &'a iroh::docs::AuthorId) -> Self {
         Self { doc, author_id }
     }
 }
 
-impl KVStore for DocStore {
+impl<'a> KVStore for DocStore<'a> {
     async fn get<T>(&self, key: impl Into<Bytes>) -> Result<Option<T>>
     where
         T: DeserializeOwned,
@@ -99,7 +104,7 @@ impl KVStore for DocStore {
     async fn insert(&self, key: impl Into<Bytes>, value: impl Serialize) -> Result<()> {
         let _res = self
             .doc
-            .set_bytes(self.author_id, key, rmp_serde::to_vec(&value)?)
+            .set_bytes(*self.author_id, key, rmp_serde::to_vec(&value)?)
             .await?;
         Ok(())
     }
