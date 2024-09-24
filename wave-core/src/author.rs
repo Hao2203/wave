@@ -20,6 +20,10 @@ impl<T: iroh::blobs::store::Store> AuthorStore for iroh::node::Node<T> {
     }
 }
 
+pub trait CurrentAuthor {
+    fn current_author(&self) -> &Author;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Author {
     id: AuthorId,
@@ -36,5 +40,11 @@ impl Author {
 
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.id.as_bytes()
+    }
+}
+
+impl CurrentAuthor for Author {
+    fn current_author(&self) -> &Author {
+        self
     }
 }

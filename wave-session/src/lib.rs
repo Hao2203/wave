@@ -1,34 +1,46 @@
 use error::Result;
 pub use session::Session;
-use session::SessionId;
+use session::{Meta, SessionId};
 use wave_core::{author::Author, KVStore};
 
 pub mod error;
 pub mod message;
 pub mod session;
 
-pub struct Client<'a, T> {
-    store: &'a T,
+pub struct Client<'store, T> {
+    store: &'store T,
     author: Author,
 }
 
-impl<'a, T> Client<'a, T>
+impl<'store, T> Client<'store, T>
 where
     T: wave_core::MakeStore,
 {
-    pub async fn create_session(&self, name: &str) -> Result<Session> {
+    pub async fn create_session<'author>(
+        &'author self,
+        name: &str,
+    ) -> Result<Session<T::Store<'author>>> {
         let (id, doc) = self.store.make(&self.author).await?;
-        let session = Session::new(id.as_ref().into(), name.to_string())?;
-        doc.insert("name", &name).await?;
+        let meta = Meta::new(name.to_string())?;
+        doc.insert("name", name).await?;
+        let session = Session::new(id.as_ref().into(), meta, doc);
         Ok(session)
     }
 
-    pub async fn get_session(&self, id: &SessionId) -> Result<Option<Session>> {
+    pub async fn get_session<'author: 'store>(
+        &'author self,
+        id: &SessionId,
+    ) -> Result<Option<Session<T::Store<'author>>>> {
         let doc = self.store.get_store(&self.author, id).await?;
 
         if let Some(doc) = doc {
             let name = doc.get("name").await?;
-            return name.map(|name| Session::new(*id, name)).transpose();
+            return name
+                .map(|name| -> Result<Session<T::Store<'store>>> {
+                    let meta = Meta::new(name)?;
+                    Ok(Session::new(*id, meta, doc))
+                })
+                .transpose();
         };
 
         Ok(None)
@@ -50,8 +62,9 @@ mod tests {
             author,
         };
         let session = client.create_session("test").await?;
-        let res = client.get_session(session.id()).await?;
-        assert_eq!(session, res.unwrap());
+        let res = client.get_session(session.id()).await?.unwrap();
+        assert_eq!(session.meta(), res.meta());
+        assert_eq!(session.id(), res.id());
         Ok(())
     }
 }

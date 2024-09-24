@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::Result;
-use author::Author;
+use author::{Author, CurrentAuthor};
 use bytes::Bytes;
 use iroh::docs::store::Query;
 use serde::{de::DeserializeOwned, Serialize};
@@ -28,7 +28,7 @@ impl MakeStore for WaveClient {
 
     async fn make<'a>(&self, author: &'a Author) -> Result<(Self::Id, Self::Store<'a>)> {
         let doc = self.node().docs().create().await?;
-        Ok((doc.id(), DocStore::new(doc, author.id())))
+        Ok((doc.id(), DocStore::new(doc, author)))
     }
 
     async fn get_store<'a>(
@@ -37,7 +37,7 @@ impl MakeStore for WaveClient {
         id: impl AsRef<[u8; 32]>,
     ) -> Result<Option<Self::Store<'a>>> {
         let doc = self.node().docs().open(id.as_ref().into()).await?;
-        Ok(doc.map(|doc| DocStore::new(doc, author.id())))
+        Ok(doc.map(|doc| DocStore::new(doc, author)))
     }
 }
 
@@ -51,12 +51,12 @@ impl<T: iroh::blobs::store::Store> MakeStore for iroh::node::Node<T> {
         id: impl AsRef<[u8; 32]> + Send,
     ) -> Result<Option<Self::Store<'a>>> {
         let doc = self.docs().open(id.as_ref().into()).await?;
-        Ok(doc.map(|doc| DocStore::new(doc, author.id())))
+        Ok(doc.map(|doc| DocStore::new(doc, author)))
     }
 
     async fn make<'a>(&self, author: &'a Author) -> Result<(Self::Id, Self::Store<'a>)> {
         let doc = self.docs().create().await?;
-        Ok((doc.id(), DocStore::new(doc, author.id())))
+        Ok((doc.id(), DocStore::new(doc, author)))
     }
 }
 
@@ -77,12 +77,12 @@ pub trait KVStore {
 
 pub struct DocStore<'a> {
     doc: iroh::client::docs::Doc,
-    author_id: &'a iroh::docs::AuthorId,
+    author: &'a Author,
 }
 
 impl<'a> DocStore<'a> {
-    pub fn new(doc: iroh::client::docs::Doc, author_id: &'a iroh::docs::AuthorId) -> Self {
-        Self { doc, author_id }
+    pub fn new(doc: iroh::client::docs::Doc, author: &'a Author) -> Self {
+        Self { doc, author }
     }
 }
 
@@ -104,8 +104,14 @@ impl<'a> KVStore for DocStore<'a> {
     async fn insert(&self, key: impl Into<Bytes>, value: impl Serialize) -> Result<()> {
         let _res = self
             .doc
-            .set_bytes(*self.author_id, key, rmp_serde::to_vec(&value)?)
+            .set_bytes(*self.author.id(), key, rmp_serde::to_vec(&value)?)
             .await?;
         Ok(())
+    }
+}
+
+impl CurrentAuthor for DocStore<'_> {
+    fn current_author(&self) -> &Author {
+        self.author
     }
 }

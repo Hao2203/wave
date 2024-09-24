@@ -1,11 +1,44 @@
+use crate::{
+    error::{ErrorKind, Result},
+    message::{content::Content, Message},
+};
 use derive_more::AsRef;
 use iroh::docs::NamespaceId;
 use serde::{Deserialize, Serialize};
-
-use crate::error::{ErrorKind, Result};
+use wave_core::{author::CurrentAuthor, KVStore};
 
 pub mod actor;
 pub mod client;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Session<T> {
+    id: SessionId,
+    meta: Meta,
+    store: T,
+}
+
+impl<T> Session<T> {
+    pub fn new(id: SessionId, meta: Meta, store: T) -> Self {
+        Self { id, meta, store }
+    }
+
+    pub fn id(&self) -> &SessionId {
+        &self.id
+    }
+
+    pub fn meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+impl<T> Session<T>
+where
+    T: KVStore + CurrentAuthor + Send,
+{
+    pub async fn send_msg(&self, content: Content) -> Result<Message> {
+        todo!()
+    }
+}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Serialize, Deserialize,
@@ -44,21 +77,15 @@ impl From<&[u8; 32]> for SessionId {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Session {
-    id: SessionId,
-    name: String,
+pub struct Meta {
+    pub name: String,
 }
 
-impl Session {
-    pub fn new(id: SessionId, name: String) -> Result<Self> {
+impl Meta {
+    pub fn new(name: String) -> Result<Self> {
         if name.len() > 64 {
             return Err(ErrorKind::SessionNameTooLong.into());
         }
-
-        Ok(Self { id, name })
-    }
-
-    pub fn id(&self) -> &SessionId {
-        &self.id
+        Ok(Self { name })
     }
 }

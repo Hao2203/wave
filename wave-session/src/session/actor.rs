@@ -1,26 +1,20 @@
-#![allow(dead_code)]
+#![allow(unused)]
+
 use super::*;
 use crate::message::{content::Content, Message};
 use async_channel::{Receiver, Sender};
 use chrono::Utc;
 use wave_core::author::Author;
 
-pub struct Actor<'a> {
-    session: &'a Session,
+pub struct Actor {
     author: Author,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
 }
 
-impl<'a> Actor<'a> {
-    pub fn new(
-        session: &'a Session,
-        author: Author,
-        receiver: Receiver<Message>,
-        sender: Sender<Message>,
-    ) -> Self {
+impl Actor {
+    pub fn new(author: Author, receiver: Receiver<Message>, sender: Sender<Message>) -> Self {
         Self {
-            session,
             author,
             receiver,
             sender,
