@@ -1,47 +1,59 @@
 use super::*;
 use async_stream::stream;
+use bytes::Bytes;
 use futures::stream::BoxStream;
-use iroh::{client::docs::LiveEvent, docs::store::Query};
+use iroh::{
+    client::docs::{self, LiveEvent},
+    docs::store::Query,
+};
 use resource::Record;
-use serde::{de::DeserializeOwned, Serialize};
+use std::future::Future;
 
-pub trait Topic<K, V> {
+pub trait Topic {
     fn get(
         &self,
-        key: &K,
-    ) -> impl std::future::Future<Output = Result<Option<Record<K, V>>>> + Send;
+        key: impl AsRef<[u8]> + Send,
+    ) -> impl Future<Output = Result<Option<Record>>> + Send;
 
-    fn subscribe(
+    fn publish(
         &self,
-    ) -> impl std::future::Future<Output = Result<BoxStream<Result<Record<K, V>>>>> + Send;
+        author: &Author,
+        key: impl Into<Bytes> + Send,
+        value: impl Into<Bytes> + Send,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    fn subscribe(&self) -> impl Future<Output = Result<BoxStream<Result<Record>>>> + Send;
 }
 
-impl<K, V> Topic<K, V> for DocStore<'_>
-where
-    for<'a> K: Serialize + DeserializeOwned + Send + Sync + 'a,
-    for<'a> V: Serialize + DeserializeOwned + Send + Sync + 'a,
-{
-    async fn get(&self, key: &K) -> Result<Option<Record<K, V>>> {
-        let entry = self
-            .doc
-            .get_one(Query::key_exact(rmp_serde::to_vec(key)?))
-            .await?;
+impl Topic for docs::Doc {
+    async fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Record>> {
+        let entry = self.get_one(Query::key_exact(key)).await?;
 
         if let Some(entry) = entry {
-            let record = Record::from_entry(&self.doc, entry).await?;
+            let record = Record::from_entry(self, entry).await?;
             return Ok(Some(record));
         }
 
         Ok(None)
     }
 
-    async fn subscribe(&self) -> Result<BoxStream<Result<Record<K, V>>>> {
-        let stream = self.doc.subscribe().await?;
+    async fn publish(
+        &self,
+        author: &Author,
+        key: impl Into<Bytes> + Send,
+        value: impl Into<Bytes> + Send,
+    ) -> Result<()> {
+        let _res = self.set_bytes(author.id(), key, value).await?;
+        Ok(())
+    }
+
+    async fn subscribe(&self) -> Result<BoxStream<Result<Record>>> {
+        let stream = self.subscribe().await?;
         let stream = stream! {
             for await event in stream {
                 match event? {
                     LiveEvent::InsertLocal { entry } | LiveEvent::InsertRemote { entry, .. } => {
-                        let record = Record::from_entry(&self.doc, entry).await?;
+                        let record = Record::from_entry(self, entry).await?;
                         yield Ok(record)
                     }
                     _ => (),
@@ -56,10 +68,9 @@ where
 #[allow(unused)]
 #[cfg(test)]
 mod test {
-    use futures::StreamExt;
-
     use super::*;
     use crate::test::*;
+    use futures::StreamExt;
 
     #[tokio::test]
     async fn test_topic() -> anyhow::Result<()> {

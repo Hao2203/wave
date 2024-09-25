@@ -35,8 +35,8 @@ impl Author {
         Self { id }
     }
 
-    pub fn id(&self) -> &AuthorId {
-        &self.id
+    pub fn id(&self) -> AuthorId {
+        self.id
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {

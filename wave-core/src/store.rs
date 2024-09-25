@@ -93,7 +93,7 @@ impl<'a> KVStore for DocStore<'a> {
     async fn insert(&self, key: impl Into<Bytes>, value: impl Serialize) -> Result<()> {
         let _res = self
             .doc
-            .set_bytes(*self.author.id(), key, rmp_serde::to_vec(&value)?)
+            .set_bytes(self.author.id(), key, rmp_serde::to_vec(&value)?)
             .await?;
         Ok(())
     }
