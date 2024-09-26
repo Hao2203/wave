@@ -1,14 +1,11 @@
-use crate::{
-    error::{ErrorKind, Result},
-    message::{content::Content, Message},
-};
+use crate::error::{ErrorKind, Result};
 use derive_more::AsRef;
 use iroh::docs::NamespaceId;
 use serde::{Deserialize, Serialize};
-use wave_core::{author::CurrentAuthor, KVStore};
 
 pub mod actor;
-pub mod client;
+pub mod index;
+pub mod stats;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Session<T> {
@@ -28,15 +25,6 @@ impl<T> Session<T> {
 
     pub fn meta(&self) -> &Meta {
         &self.meta
-    }
-}
-
-impl<T> Session<T>
-where
-    T: KVStore + CurrentAuthor + Send,
-{
-    pub async fn send_msg(&self, content: Content) -> Result<Message> {
-        todo!()
     }
 }
 
@@ -88,4 +76,8 @@ impl Meta {
         }
         Ok(Self { name })
     }
+}
+
+pub trait SessionMetadata {
+    fn name(&self) -> &str;
 }
