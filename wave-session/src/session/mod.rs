@@ -4,28 +4,10 @@ use iroh::docs::NamespaceId;
 use serde::{Deserialize, Serialize};
 
 pub mod actor;
-pub mod index;
 pub mod stats;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Session<T> {
-    id: SessionId,
-    meta: Meta,
-    store: T,
-}
-
-impl<T> Session<T> {
-    pub fn new(id: SessionId, meta: Meta, store: T) -> Self {
-        Self { id, meta, store }
-    }
-
-    pub fn id(&self) -> &SessionId {
-        &self.id
-    }
-
-    pub fn meta(&self) -> &Meta {
-        &self.meta
-    }
+pub trait SessionHandle {
+    fn id(&self) -> SessionId;
 }
 
 #[derive(
@@ -64,20 +46,8 @@ impl From<&[u8; 32]> for SessionId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Meta {
-    pub name: String,
-}
-
-impl Meta {
-    pub fn new(name: String) -> Result<Self> {
-        if name.len() > 64 {
-            return Err(ErrorKind::SessionNameTooLong.into());
-        }
-        Ok(Self { name })
-    }
-}
-
-pub trait SessionMetadata {
-    fn name(&self) -> &str;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionCreator {
+    pub session_name: String,
+    pub author_name: String,
 }

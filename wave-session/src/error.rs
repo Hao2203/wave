@@ -16,6 +16,7 @@ impl<T: Into<ErrorKind>> From<T> for Error {
 #[error("{:?}", self)]
 pub enum ErrorKind {
     SessionNameTooLong,
-
+    AuthorNameTooLong,
+    AuthorNotFound,
     Other(#[from] anyhow::Error),
 }

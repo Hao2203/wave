@@ -1,7 +1,7 @@
+use crate::author::Author;
 use content::Content;
 pub use error::*;
 use serde::{Deserialize, Serialize};
-use wave_core::author::Author;
 
 pub mod content;
 pub mod error;
