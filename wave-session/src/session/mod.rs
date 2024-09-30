@@ -1,4 +1,3 @@
-use crate::error::{ErrorKind, Result};
 use derive_more::AsRef;
 use iroh::docs::NamespaceId;
 use serde::{Deserialize, Serialize};
