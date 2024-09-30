@@ -1,23 +1,21 @@
 use crate::{
     codec::{CodecRead, CodecWrite},
-    handle::{RefReader, RefWriter},
     service::Service,
     Handle,
 };
 use anyhow::Result;
 use futures::future::BoxFuture;
-use std::{collections::HashMap, hash::Hash, pin::Pin};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    pin,
-};
+use std::{collections::HashMap, hash::Hash};
+use tokio::io::{AsyncRead, AsyncWrite};
 
-pub struct RpcServer<'a, K, Codec> {
-    map: HashMap<K, Box<dyn Handle<'a> + 'a>>,
+pub mod router;
+
+pub struct RpcServer<'a, K, Codec, Conn> {
+    map: HashMap<K, Box<dyn Handle<'a, Conn> + 'a>>,
     codec: Codec,
 }
 
-impl<'a, K, Codec> RpcServer<'a, K, Codec> {
+impl<'a, K, Codec, Conn> RpcServer<'a, K, Codec, Conn> {
     #[allow(clippy::new_without_default)]
     pub fn new(codec: Codec) -> Self {
         Self {
@@ -33,25 +31,10 @@ impl<'a, K, Codec> RpcServer<'a, K, Codec> {
         Req: Send + 'static,
         S::Response: Send + 'static,
         Codec: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
+        Conn: AsyncRead + AsyncWrite + Unpin + Send,
     {
         self.map
             .insert(S::KEY, ConnHandler::boxed(service, &self.codec));
-    }
-
-    pub async fn serve(
-        &'a self,
-        mut reader: impl AsyncRead + Send + Unpin,
-        writer: impl AsyncWrite + Send + Unpin,
-    ) -> Result<()>
-    where
-        K: Eq + Hash + Send + 'static,
-        Codec: CodecRead<K>,
-    {
-        let key = self.codec.codec_read(Pin::new(&mut reader)).await?;
-        let handler = self.map.get(&key).unwrap();
-        pin!(reader, writer);
-        handler.handle(reader, writer).await?;
-        Ok(())
     }
 }
 
@@ -70,36 +53,34 @@ impl<'a, S, Req, Codec> ConnHandler<'a, S, Req, Codec> {
         }
     }
 
-    pub fn boxed(service: &'a S, codec: &'a Codec) -> Box<dyn Handle<'a> + 'a>
+    pub fn boxed<Conn>(service: &'a S, codec: &'a Codec) -> Box<dyn Handle<'a, Conn> + 'a>
     where
         S: Service<Req> + Send + Sync + 'a,
         Req: Send + 'static,
         S::Response: Send + 'static,
         Codec: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
+        Conn: AsyncRead + AsyncWrite + Unpin + Send,
     {
         Box::new(ConnHandler::new(service, codec))
     }
 }
 
-impl<'a, S, Req, Codec> Handle<'a> for ConnHandler<'a, S, Req, Codec>
+impl<'a, S, Req, Codec, Conn> Handle<'a, Conn> for ConnHandler<'a, S, Req, Codec>
 where
     S: Service<Req> + Send + Sync + 'a,
     Req: Send + 'static,
     S::Response: Send + 'static,
     Codec: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
+    Conn: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    fn handle<'conn>(
-        &'a self,
-        reader: RefReader<'conn>,
-        writer: RefWriter<'conn>,
-    ) -> BoxFuture<'conn, Result<()>>
+    fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, Result<()>>
     where
         'a: 'conn,
     {
         let fut = async {
-            let req = self.codec.codec_read(reader).await?;
+            let req = self.codec.codec_read(conn).await?;
             let res = self.service.call(req).await?;
-            self.codec.codec_write(writer, res).await?;
+            self.codec.codec_write(conn, res).await?;
             anyhow::Ok(())
         };
         Box::pin(fut)

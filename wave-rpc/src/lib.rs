@@ -42,4 +42,4 @@ pub mod service;
 #[cfg(test)]
 mod test;
 
-pub use handle::Handle;
+pub use handle::{Handle, RefReader, RefWriter};
