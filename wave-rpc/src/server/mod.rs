@@ -7,8 +7,6 @@ use futures::future::BoxFuture;
 use std::{collections::HashMap, hash::Hash};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub mod router;
-
 pub trait Handle<'a, Conn> {
     fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, anyhow::Result<()>>
     where
