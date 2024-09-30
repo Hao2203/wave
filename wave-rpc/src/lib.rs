@@ -36,10 +36,9 @@
 //!
 
 pub mod codec;
-pub mod handle;
 pub mod server;
 pub mod service;
 #[cfg(test)]
 mod test;
 
-pub use handle::{Handle, RefReader, RefWriter};
+pub use service::Service;

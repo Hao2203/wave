@@ -12,11 +12,11 @@ impl Service<AddReq> for MyService {
     type Response = u32;
     type Key = ();
 
-    const KEY: Self::Key = ();
-
     async fn call(&self, req: AddReq) -> Result<Self::Response> {
         Ok(req.0 + req.1)
     }
+
+    fn key(&self) -> Self::Key {}
 }
 
 // #[tokio::test]

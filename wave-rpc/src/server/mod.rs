@@ -1,7 +1,6 @@
 use crate::{
     codec::{CodecRead, CodecWrite},
     service::Service,
-    Handle,
 };
 use anyhow::Result;
 use futures::future::BoxFuture;
@@ -10,13 +9,19 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod router;
 
+pub trait Handle<'a, Conn> {
+    fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, anyhow::Result<()>>
+    where
+        'a: 'conn,
+        Conn: AsyncRead + AsyncWrite + Unpin;
+}
+
 pub struct RpcServer<'a, K, Codec, Conn> {
     map: HashMap<K, Box<dyn Handle<'a, Conn> + 'a>>,
     codec: Codec,
 }
 
 impl<'a, K, Codec, Conn> RpcServer<'a, K, Codec, Conn> {
-    #[allow(clippy::new_without_default)]
     pub fn new(codec: Codec) -> Self {
         Self {
             map: HashMap::new(),
@@ -34,7 +39,7 @@ impl<'a, K, Codec, Conn> RpcServer<'a, K, Codec, Conn> {
         Conn: AsyncRead + AsyncWrite + Unpin + Send,
     {
         self.map
-            .insert(S::KEY, ConnHandler::boxed(service, &self.codec));
+            .insert(service.key(), ConnHandler::boxed(service, &self.codec));
     }
 }
 
