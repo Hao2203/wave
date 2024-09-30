@@ -1,5 +1,5 @@
 [workspace]
-members = ["wave", "wave-core", "wave-session"]
+members = ["wave", "wave-core", "wave-rpc", "wave-session"]
 resolver = "2"
 
 [workspace.dependencies]

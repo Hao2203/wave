@@ -4752,6 +4752,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wave-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "wave-session"
 version = "0.1.0"
 dependencies = [
