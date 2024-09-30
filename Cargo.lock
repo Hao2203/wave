@@ -4757,6 +4757,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
+ "rmp-serde",
+ "serde",
+ "serde_bytes",
  "tokio",
 ]
 

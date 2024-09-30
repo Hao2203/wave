@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub use crate::error::Result;
 use crate::{
     author::CurrentAuthor,
