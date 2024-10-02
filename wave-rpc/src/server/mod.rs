@@ -1,52 +1,38 @@
 use crate::{
     codec::{CodecRead, CodecWrite},
-    service::{Connection, Service},
+    service::{Handle, Service},
 };
 use anyhow::Result;
 use futures::future::BoxFuture;
-use std::{collections::HashMap, future::Future, hash::Hash};
+use std::{collections::HashMap, hash::Hash};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub trait Transport<S> {
-    fn transport(&self, service: &S) -> impl Future<Output = Result<HandleFn>>;
-}
+pub mod transport;
 
-type HandleFn<'a> = Box<
-    dyn for<'conn> Fn(&'conn mut dyn Connection) -> BoxFuture<'conn, anyhow::Result<()>>
-        + Send
-        + 'a,
->;
-
-pub trait Handle<'a, Conn> {
-    fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, anyhow::Result<()>>
-    where
-        'a: 'conn;
-}
-
-pub struct RpcServer<'a, K, Codec, Conn> {
+pub struct RpcServer<'a, K, T, Conn> {
     map: HashMap<K, Box<dyn Handle<'a, Conn> + 'a>>,
-    codec: Codec,
+    transport: T,
 }
 
-impl<'a, K, Codec, Conn> RpcServer<'a, K, Codec, Conn> {
-    pub fn new(codec: Codec) -> Self {
+impl<'a, K, T, Conn> RpcServer<'a, K, T, Conn> {
+    pub fn new(transport: T) -> Self {
         Self {
             map: HashMap::new(),
-            codec,
+            transport,
         }
     }
 
-    pub fn register<S, Req>(&'a mut self, service: &'a S)
+    pub fn register<S, Req>(&'a mut self, key: K, service: &'a S)
     where
-        S: Service<Req, Key = K> + Send + Sync + 'a,
+        S: Service<Req> + Send + Sync + 'a,
         K: Eq + Hash + Send,
         Req: Send + 'static,
         S::Response: Send + 'static,
-        Codec: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
+        T: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
         Conn: AsyncRead + AsyncWrite + Unpin + Send,
     {
         self.map
-            .insert(service.key(), ConnHandler::boxed(service, &self.codec));
+            .insert(key, ConnHandler::boxed(service, &self.transport));
     }
 }
 
@@ -71,7 +57,7 @@ impl<'a, S, Req, Codec> ConnHandler<'a, S, Req, Codec> {
         Req: Send + 'static,
         S::Response: Send + 'static,
         Codec: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
-        Conn: AsyncRead + AsyncWrite + Unpin + Send,
+        Conn: AsyncRead + AsyncWrite + Unpin + Send + ?Sized,
     {
         Box::new(ConnHandler::new(service, codec))
     }
@@ -83,7 +69,7 @@ where
     Req: Send + 'static,
     S::Response: Send + 'static,
     Codec: CodecRead<Req> + CodecWrite<S::Response> + Send + Sync + 'a,
-    Conn: AsyncRead + AsyncWrite + Unpin + Send,
+    Conn: AsyncRead + AsyncWrite + Unpin + Send + ?Sized,
 {
     fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, Result<()>>
     where

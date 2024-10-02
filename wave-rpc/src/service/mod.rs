@@ -1,14 +1,12 @@
 use anyhow::Result;
+use futures::future::BoxFuture;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait Service<Req> {
     type Response;
-    type Key;
 
     fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response>> + Send;
-
-    fn key(&self) -> Self::Key;
 }
 
 /// ```rust
@@ -23,3 +21,9 @@ pub trait Service<Req> {
 pub trait Connection: AsyncRead + AsyncWrite {}
 
 impl<T: AsyncRead + AsyncWrite> Connection for T {}
+
+pub trait Handle<'a, Conn: ?Sized> {
+    fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, anyhow::Result<()>>
+    where
+        'a: 'conn;
+}
