@@ -1,17 +1,26 @@
 use crate::{
     codec::{CodecRead, CodecWrite},
-    service::Service,
+    service::{Connection, Service},
 };
 use anyhow::Result;
 use futures::future::BoxFuture;
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, future::Future, hash::Hash};
 use tokio::io::{AsyncRead, AsyncWrite};
+
+pub trait Transport<S> {
+    fn transport(&self, service: &S) -> impl Future<Output = Result<HandleFn>>;
+}
+
+type HandleFn<'a> = Box<
+    dyn for<'conn> Fn(&'conn mut dyn Connection) -> BoxFuture<'conn, anyhow::Result<()>>
+        + Send
+        + 'a,
+>;
 
 pub trait Handle<'a, Conn> {
     fn handle<'conn>(&'a self, conn: &'conn mut Conn) -> BoxFuture<'conn, anyhow::Result<()>>
     where
-        'a: 'conn,
-        Conn: AsyncRead + AsyncWrite + Unpin;
+        'a: 'conn;
 }
 
 pub struct RpcServer<'a, K, Codec, Conn> {

@@ -6,7 +6,12 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt",
+    "net",
+    "rt-multi-thread",
+] }
 futures = { workspace = true }
 
 serde_bytes = { workspace = true }
