@@ -36,6 +36,7 @@
 //!
 
 pub mod codec;
+pub mod proto;
 pub mod server;
 pub mod service;
 #[cfg(test)]
