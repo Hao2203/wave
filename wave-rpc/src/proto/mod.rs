@@ -1,12 +1,13 @@
 use crate::{
-    codec::{CodecRead, CodecWrite},
+    service::{Connection, Handle},
     Service,
 };
 use zerocopy::IntoBytes;
 
-pub trait Proto<S: Service>:
-    CodecRead<S::Request> + CodecRead<S::Response> + CodecWrite<S::Request> + CodecWrite<S::Response>
-{
+pub trait Proto<S: Service> {
+    fn client(&self, conn: &mut dyn Connection) -> S;
+
+    fn server(&self, service: S) -> Box<dyn Handle<dyn Connection>>;
 }
 
 #[derive(Debug, IntoBytes, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

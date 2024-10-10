@@ -1,5 +1,4 @@
-use super::{ConnHandler, Handle, Result};
-use crate::{service::Connection, Service};
+use super::Result;
 use std::future::Future;
 
 pub trait Transport<S> {
