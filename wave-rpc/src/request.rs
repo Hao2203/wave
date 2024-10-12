@@ -1,6 +1,6 @@
 use crate::body::Body;
 
-pub struct Request<'conn, const N: usize = 0> {
+pub struct Request<'conn, const N: usize = 4> {
     header: [u8; N],
     body: Body<'conn>,
 }
