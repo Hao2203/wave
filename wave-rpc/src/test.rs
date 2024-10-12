@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use crate::server::RpcServer;
 use crate::service::Service;
 use anyhow::Result;
 

@@ -35,11 +35,16 @@
 //!
 //!
 
+pub mod body;
 pub mod codec;
-pub mod proto;
+pub mod request;
+pub mod response;
 pub mod server;
 pub mod service;
 #[cfg(test)]
 mod test;
 
+pub use body::Body;
+pub use request::Request;
+pub use response::Response;
 pub use service::Service;
