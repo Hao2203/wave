@@ -4,15 +4,10 @@ use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait Service {
-    type Request<'a>;
-    type Response<'a>
-    where
-        Self: 'a;
+    type Request;
+    type Response;
 
-    fn call(
-        &self,
-        req: Self::Request<'_>,
-    ) -> impl Future<Output = Result<Self::Response<'_>>> + Send;
+    fn call(&self, req: Self::Request) -> impl Future<Output = Result<Self::Response>> + Send;
 }
 
 /// ```rust
