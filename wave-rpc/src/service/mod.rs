@@ -3,14 +3,16 @@ use futures::future::BoxFuture;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub trait Service<'a> {
-    type Request: 'a;
-    type Response: 'a;
+pub trait Service {
+    type Request<'a>;
+    type Response<'a>
+    where
+        Self: 'a;
 
     fn call(
-        &'a self,
-        req: Self::Request,
-    ) -> impl Future<Output = Result<Self::Response>> + Send + 'a;
+        &self,
+        req: Self::Request<'_>,
+    ) -> impl Future<Output = Result<Self::Response<'_>>> + Send;
 }
 
 /// ```rust

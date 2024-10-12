@@ -6,7 +6,7 @@ pub mod service;
 pub mod transport;
 
 pub trait FromRequest<'a>: Sized {
-    fn from_request(req: Request<'a>) -> impl Future<Output = Result<Self>> + Send + 'a;
+    fn from_request(req: &'a mut Request<'a>) -> impl Future<Output = Result<Self>> + Send;
 }
 
 pub trait IntoResponse<'a> {
