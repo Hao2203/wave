@@ -43,6 +43,7 @@ pub mod server;
 pub mod service;
 #[cfg(test)]
 mod test;
+pub mod transport;
 
 pub use body::Body;
 pub use request::Request;

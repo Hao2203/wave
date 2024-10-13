@@ -23,4 +23,4 @@ async-trait = { workspace = true }
 
 [features]
 default = []
-with-rmp = ["rmp-serde"]
+rmp = ["rmp-serde"]
