@@ -1,3 +1,4 @@
+use crate::service::Call;
 use crate::transport::{FromRequest, IntoResponse, Result};
 use crate::{Request, Response, Service};
 use async_trait::async_trait;
@@ -10,7 +11,7 @@ pub trait RpcService {
 #[async_trait]
 impl<T> RpcService for T
 where
-    T: Service + Sync,
+    T: Service + Call<T> + Sync,
     <T as Service>::Request: FromRequest + Send,
     for<'a> <T as Service>::Response: IntoResponse<'a> + Send,
 {

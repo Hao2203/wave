@@ -4756,6 +4756,7 @@ name = "wave-rpc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "async-trait",
  "bytes",
  "futures",

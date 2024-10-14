@@ -6,8 +6,10 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub trait Service {
     type Request;
     type Response;
+}
 
-    fn call(&self, req: Self::Request) -> impl Future<Output = Result<Self::Response>> + Send;
+pub trait Call<S: Service> {
+    fn call(&self, req: S::Request) -> impl Future<Output = Result<S::Response>> + Send;
 }
 
 /// ```rust
