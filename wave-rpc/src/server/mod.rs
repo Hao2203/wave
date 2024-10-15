@@ -1,13 +1,15 @@
 use crate::{
-    request::{BodyType, Header, Request},
+    body::BodyType,
+    request::{Header, Request},
     Body,
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use async_stream::stream;
 use bytes::{Bytes, BytesMut};
+use futures::StreamExt;
 use service::RpcService;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
-use zerocopy::{FromBytes, TryFromBytes};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use zerocopy::{IntoBytes, TryFromBytes};
 
 pub mod service;
 
@@ -19,10 +21,12 @@ impl RpcServer {
     pub async fn serve(
         &self,
         service: impl RpcService,
-        mut io: impl AsyncRead + AsyncWrite + Unpin + Send,
+        io: (impl AsyncRead + Unpin + Send, impl AsyncWrite + Unpin),
     ) -> Result<()> {
+        let (mut io_read, mut io_write) = io;
+
         let mut header_buf = [0u8; 40];
-        let _ = io.read(&mut header_buf).await?;
+        let _ = io_read.read(&mut header_buf).await?;
         let header: &Header =
             Header::try_ref_from_bytes(&header_buf[..]).map_err(|_| anyhow!(""))?;
 
@@ -33,14 +37,17 @@ impl RpcServer {
         let body: Body = match header.body_type {
             BodyType::Bytes => {
                 let mut bytes = BytesMut::with_capacity(header.body_size as usize);
-                io.read_buf(&mut bytes).await?;
+                io_read.read_buf(&mut bytes).await?;
                 Body::Bytes(bytes.into())
             }
             BodyType::Stream => {
                 let stream = stream! {
-                    let mut bytes = BytesMut::with_capacity(header.body_size as usize);
-                    io.read_buf(&mut bytes).await?;
-                    yield Ok(Bytes::from(bytes));
+                    for _ in 0..u32::MAX {
+                        let mut bytes = BytesMut::with_capacity(header.body_size as usize);
+                        io_read.read_buf(&mut bytes).await?;
+                        yield Ok(Bytes::from(bytes));
+                    }
+
                 };
                 Body::Stream(Box::pin(stream))
             }
@@ -48,8 +55,15 @@ impl RpcServer {
 
         let req = Request { header, body };
 
-        let resp = service.call(req).await?;
+        let mut resp = service.call(req).await?;
 
-        todo!()
+        io_write.write_all(resp.header().as_bytes()).await?;
+
+        while let Some(bytes) = resp.body_mut().next().await {
+            io_write.write_all(&bytes?).await?;
+        }
+        io_write.shutdown().await?;
+
+        Ok(())
     }
 }

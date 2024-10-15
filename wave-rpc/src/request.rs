@@ -1,4 +1,4 @@
-use crate::body::Body;
+use crate::body::{Body, BodyType};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
 pub struct Request<'conn> {
@@ -14,19 +14,16 @@ impl<'conn> Request<'conn> {
     pub fn body(&self) -> &Body<'conn> {
         &self.body
     }
+
+    pub fn body_mut(&mut self) -> &mut Body<'conn> {
+        &mut self.body
+    }
 }
 
 #[derive(TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
 pub struct Header {
-    pub req_id: u64,
+    pub service_id: u64,
     pub body_type: BodyType,
     pub body_size: u64, // if body_type == BodyType::Bytes then this is the size in bytes else it's the stream item length
-}
-
-#[derive(IntoBytes, TryFromBytes, KnownLayout, Immutable, Unaligned)]
-#[repr(u8)]
-pub enum BodyType {
-    Bytes,
-    Stream,
 }
