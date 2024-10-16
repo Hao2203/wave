@@ -7,9 +7,8 @@ use anyhow::{anyhow, Result};
 use async_stream::stream;
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
-use service::RpcService;
+use service::Handler;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use zerocopy::{IntoBytes, TryFromBytes};
 
 pub mod service;
 
@@ -20,15 +19,12 @@ pub struct RpcServer {
 impl RpcServer {
     pub async fn serve(
         &self,
-        service: impl RpcService,
+        service: impl Handler,
         io: (impl AsyncRead + Unpin + Send, impl AsyncWrite + Unpin),
     ) -> Result<()> {
         let (mut io_read, mut io_write) = io;
 
-        let mut header_buf = [0u8; 40];
-        let _ = io_read.read(&mut header_buf).await?;
-        let header: &Header =
-            Header::try_ref_from_bytes(&header_buf[..]).map_err(|_| anyhow!(""))?;
+        let header = &Header::from_reader(&mut io_read).await?;
 
         if header.body_size > self.max_body_size as u64 {
             return Err(anyhow!("body size too large"));
@@ -43,11 +39,10 @@ impl RpcServer {
             BodyType::Stream => {
                 let stream = stream! {
                     for _ in 0..u32::MAX {
-                        let mut bytes = BytesMut::with_capacity(header.body_size as usize);
+                        let mut bytes = BytesMut::with_capacity(header.body_size());
                         io_read.read_buf(&mut bytes).await?;
                         yield Ok(Bytes::from(bytes));
                     }
-
                 };
                 Body::Stream(Box::pin(stream))
             }

@@ -11,7 +11,7 @@ pub enum Body<'conn> {
     Stream(BoxStream<'conn, Result<Bytes>>),
 }
 
-#[derive(IntoBytes, TryFromBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(Clone, Copy, IntoBytes, TryFromBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum BodyType {

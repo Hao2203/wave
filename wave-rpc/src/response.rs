@@ -34,3 +34,16 @@ pub struct Header {
     pub body_type: BodyType,
     pub body_size: u64,
 }
+
+impl Header {
+    pub const SIZE: usize = 9;
+
+    #[inline]
+    pub fn buffer() -> [u8; Self::SIZE] {
+        [0u8; Self::SIZE]
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        <Self as IntoBytes>::as_bytes(self)
+    }
+}

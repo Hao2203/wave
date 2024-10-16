@@ -36,6 +36,7 @@
 //!
 
 pub mod body;
+pub mod client;
 pub mod codec;
 pub mod request;
 pub mod response;

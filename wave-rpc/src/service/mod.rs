@@ -6,6 +6,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub trait Service {
     type Request;
     type Response;
+
+    fn id(&self) -> u64;
 }
 
 pub trait Call<S: Service> {

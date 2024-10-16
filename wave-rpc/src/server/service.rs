@@ -4,12 +4,12 @@ use crate::{Request, Response, Service};
 use async_trait::async_trait;
 
 #[async_trait]
-pub trait RpcService {
+pub trait Handler {
     async fn call(&self, req: Request<'_>) -> Result<Response<'_>>;
 }
 
 #[async_trait]
-impl<T> RpcService for T
+impl<T> Handler for T
 where
     T: Service + Call<T> + Sync,
     <T as Service>::Request: FromRequest + Send,
