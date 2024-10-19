@@ -12,6 +12,7 @@ tokio = { workspace = true, features = [
     "net",
     "rt-multi-thread",
 ] }
+tokio-util = { version = "0.7", features = ["codec"] }
 futures = { workspace = true }
 
 serde_bytes = { workspace = true }

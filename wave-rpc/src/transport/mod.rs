@@ -7,23 +7,9 @@ pub mod error;
 pub mod rmp;
 
 pub trait FromRequest: Sized {
-    fn from_request(req: &Request<'_>) -> impl Future<Output = Result<Self>> + Send;
+    fn from_request(req: &Request) -> impl Future<Output = Result<Self>> + Send;
 }
 
 pub trait IntoRequest {
-    fn into_request<'a>(self) -> Request<'a>
-    where
-        Self: 'a;
-}
-
-pub trait FromResponse {
-    fn from_response(resp: Response<'_>) -> Result<Self>
-    where
-        Self: Sized;
-}
-
-pub trait IntoResponse {
-    fn into_response<'a>(self) -> Response<'a>
-    where
-        Self: 'a;
+    fn into_request(self) -> Request;
 }

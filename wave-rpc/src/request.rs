@@ -1,22 +1,24 @@
-use crate::body::{Body, BodyType};
+use crate::body::{Body, BodyCodec};
+use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
-pub struct Request<'conn> {
-    pub header: &'conn Header,
-    pub body: Body<'conn>,
+pub struct Request {
+    pub header: Header,
+    pub body: Body,
 }
 
-impl<'conn> Request<'conn> {
+impl Request {
     pub fn header(&self) -> &Header {
-        self.header
+        &self.header
     }
 
-    pub fn body(&self) -> &Body<'conn> {
+    pub fn body(&self) -> &Body {
         &self.body
     }
 
-    pub fn body_mut(&mut self) -> &mut Body<'conn> {
+    pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
     }
 }
@@ -25,12 +27,11 @@ impl<'conn> Request<'conn> {
 #[repr(C, packed)]
 pub struct Header {
     pub service_id: u64,
-    pub body_type: BodyType,
-    pub body_size: u64, // if body_type == BodyType::Bytes then this is the size in bytes else it's the stream item length
+    pub service_version: u64,
 }
 
 impl Header {
-    pub const SIZE: usize = 17;
+    pub const SIZE: usize = 16;
 
     #[inline]
     pub fn buffer() -> [u8; Self::SIZE] {
@@ -48,11 +49,52 @@ impl Header {
         Ok(header)
     }
 
-    pub fn body_size(&self) -> usize {
-        self.body_size as usize
-    }
-
     pub fn as_bytes(&self) -> &[u8] {
         <Self as IntoBytes>::as_bytes(self)
+    }
+}
+
+pub struct RequestCodec {
+    body_codec: BodyCodec,
+}
+
+impl RequestCodec {
+    pub fn new(body_codec: BodyCodec) -> Self {
+        Self { body_codec }
+    }
+}
+
+impl Encoder<Request> for RequestCodec {
+    type Error = anyhow::Error;
+
+    fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let Request { header, body } = item;
+        let header_bytes = header.as_bytes();
+        dst.reserve(header_bytes.len() + body.length());
+        dst.extend_from_slice(header_bytes);
+        self.body_codec.encode(body, dst)?;
+        Ok(())
+    }
+}
+
+impl Decoder for RequestCodec {
+    type Item = Request;
+    type Error = anyhow::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.len() < Header::SIZE {
+            return Ok(None);
+        }
+
+        let header = {
+            let mut header_buf = Header::buffer();
+            src.copy_to_slice(&mut header_buf[..]);
+            *Header::try_ref_from_bytes(&header_buf[..])
+                .map_err(|e| anyhow::anyhow!("Can't parse header from bytes, error: {}", e))?
+        };
+
+        let body = self.body_codec.decode(src)?;
+
+        Ok(body.map(|body| Request { header, body }))
     }
 }

@@ -1,49 +1,55 @@
-use crate::{body::BodyType, Body};
-use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
+use crate::{body::BodyCodec, Body};
+use bytes::BytesMut;
+use tokio_util::codec::{Decoder, Encoder};
 
-pub struct Response<'conn> {
-    header: Header,
-    body: Body<'conn>,
+pub struct Response {
+    body: Body,
 }
 
-impl<'conn> Response<'conn> {
-    pub fn new(header: Header, body: Body<'conn>) -> Self {
-        Self { header, body }
+impl Response {
+    pub fn new(body: Body) -> Self {
+        Self { body }
     }
 
-    pub fn header(&self) -> &Header {
-        &self.header
-    }
-
-    pub fn body(&self) -> &Body<'conn> {
+    pub fn body(&self) -> &Body {
         &self.body
     }
 
-    pub fn into_body(self) -> Body<'conn> {
+    pub fn into_body(self) -> Body {
         self.body
     }
 
-    pub fn body_mut(&mut self) -> &mut Body<'conn> {
+    pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
     }
 }
 
-#[derive(TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
-#[repr(C, packed)]
-pub struct Header {
-    pub body_type: BodyType,
-    pub body_size: u64,
+pub struct ResponseCodec {
+    body_codec: BodyCodec,
 }
 
-impl Header {
-    pub const SIZE: usize = 9;
-
-    #[inline]
-    pub fn buffer() -> [u8; Self::SIZE] {
-        [0u8; Self::SIZE]
+impl ResponseCodec {
+    pub fn new(body_codec: BodyCodec) -> Self {
+        Self { body_codec }
     }
+}
 
-    pub fn as_bytes(&self) -> &[u8] {
-        <Self as IntoBytes>::as_bytes(self)
+impl Encoder<Response> for ResponseCodec {
+    type Error = anyhow::Error;
+
+    fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let Response { body } = item;
+        self.body_codec.encode(body, dst)?;
+        Ok(())
+    }
+}
+
+impl Decoder for ResponseCodec {
+    type Item = Response;
+    type Error = anyhow::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let body = self.body_codec.decode(src)?;
+        Ok(body.map(|body| Response { body }))
     }
 }
