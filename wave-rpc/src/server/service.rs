@@ -1,5 +1,5 @@
 use super::{code::ErrorCode, Result};
-use crate::{service::Call, Body, Request, Response, Service};
+use crate::{Body, Request, Response, Service};
 use async_trait::async_trait;
 use std::{collections::BTreeMap, future::Future};
 
@@ -19,26 +19,6 @@ pub trait ToResponse {
     fn to_response(&self) -> Result<Response>;
 }
 
-pub struct RpcHandler<'a, T, S> {
-    caller: &'a T,
-    _service: std::marker::PhantomData<fn() -> S>,
-}
-
-#[async_trait]
-impl<'a, T, S> Handler for RpcHandler<'a, T, S>
-where
-    S: Service,
-    <S as Service>::Request: FromRequest + Send,
-    <S as Service>::Response: ToResponse,
-    T: Call<S> + Send + Sync,
-{
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        let req = S::Request::from_request(req).await?;
-        let resp = T::call(self.caller, req).await?;
-        resp.to_response()
-    }
-}
-
 pub struct RpcService<'a> {
     map: BTreeMap<u64, Box<dyn Handler + Sync + 'a>>,
 }
@@ -51,17 +31,23 @@ impl<'a> RpcService<'a> {
         }
     }
 
-    pub fn register<S: Service + 'static>(&mut self, caller: &'a (impl Call<S> + Send + Sync))
+    pub fn register<State, F, Fut, S>(&mut self, state: &'a State, f: F)
     where
+        State: Send + Sync + 'a,
+        F: Fn(&State, &mut S::Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<S::Response>> + Send + 'static,
+        S: Service + Send + Sync + 'static,
         <S as Service>::Request: FromRequest + Send,
         <S as Service>::Response: ToResponse,
     {
         let id = S::ID;
         self.map.insert(
             id,
-            Box::new(RpcHandler {
-                caller,
-                _service: std::marker::PhantomData,
+            Box::new(FnHandler {
+                f,
+                state,
+                _service: std::marker::PhantomData::<fn() -> S>,
+                _future: std::marker::PhantomData,
             }),
         );
     }
@@ -78,5 +64,29 @@ impl<'a> Handler for RpcService<'a> {
             ErrorCode::ServiceNotFound as u16,
             Body::new_empty(),
         ))
+    }
+}
+
+pub struct FnHandler<'a, State, F, Fut, S> {
+    f: F,
+    state: &'a State,
+    _service: std::marker::PhantomData<fn() -> S>,
+    _future: std::marker::PhantomData<fn() -> Fut>,
+}
+
+#[async_trait]
+impl<'a, State, F, Fut, S> Handler for FnHandler<'a, State, F, Fut, S>
+where
+    State: Send + Sync + 'a,
+    Fut: Future<Output = Result<S::Response>> + Send,
+    F: Fn(&State, &mut S::Request) -> Fut + Send + Sync,
+    S: Service + Send + Sync,
+    <S as Service>::Request: FromRequest + Send,
+    <S as Service>::Response: ToResponse,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        let mut req = S::Request::from_request(req).await?;
+        let resp = (self.f)(self.state, &mut req).await?;
+        resp.to_response()
     }
 }
