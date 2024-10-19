@@ -1,14 +1,16 @@
+use crate::error::{Error, Result};
 use crate::{
     request::{Header, Request},
     Body,
 };
-use anyhow::{anyhow, Result};
 use async_stream::stream;
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
 use service::Handler;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+// pub mod error;
+pub mod code;
 pub mod service;
 
 pub struct RpcServer {

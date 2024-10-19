@@ -24,7 +24,7 @@ where
     R: AsyncRead + Unpin + Send + Sync,
     W: AsyncWrite + Unpin + Send + Sync,
 {
-    async fn call(&self, req: <S as Service>::Request) -> anyhow::Result<<S as Service>::Response> {
+    async fn call(&self, req: <S as Service>::Request) -> crate::Result<<S as Service>::Response> {
         todo!()
     }
 }

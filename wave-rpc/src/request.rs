@@ -70,7 +70,7 @@ impl Encoder<Request> for RequestCodec {
     fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let Request { header, body } = item;
         let header_bytes = header.as_bytes();
-        dst.reserve(header_bytes.len() + body.length());
+        dst.reserve(header_bytes.len() + body.len());
         dst.extend_from_slice(header_bytes);
         self.body_codec.encode(body, dst)?;
         Ok(())

@@ -38,15 +38,17 @@
 pub mod body;
 pub mod client;
 pub mod codec;
+pub mod error;
 pub mod request;
 pub mod response;
 pub mod server;
 pub mod service;
 #[cfg(test)]
 mod test;
-pub mod transport;
+// pub mod transport;
 
 pub use body::Body;
+pub use error::{Error, Result};
 pub use request::Request;
 pub use response::Response;
 pub use service::Service;
