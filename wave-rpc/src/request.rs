@@ -26,12 +26,12 @@ impl Request {
 #[derive(Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
 pub struct Header {
-    pub service_id: u64,
-    pub service_version: u64,
+    pub service_id: u32,
+    pub service_version: u32,
 }
 
 impl Header {
-    pub const SIZE: usize = 16;
+    pub const SIZE: usize = 8;
 
     #[inline]
     pub fn buffer() -> [u8; Self::SIZE] {

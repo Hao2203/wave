@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, future::Future};
 pub mod bincode;
 
 #[async_trait]
-pub trait Handler {
+pub trait RpcHandler {
     async fn call(&self, req: &mut Request) -> Result<Response>;
 }
 
@@ -19,8 +19,38 @@ pub trait ToResponse {
     fn to_response(&self) -> Result<Response>;
 }
 
+/// ```rust
+/// use wave_rpc::server::RpcService;
+/// use wave_rpc::service::Service;
+///
+/// struct MyService;
+///
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct AddReq(u32, u32);
+///
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct AddRes(u32);
+///
+/// impl Service for MyService {
+///     type Request = AddReq;
+///     type Response = AddRes;
+///
+///     const ID: u32 = 1;
+/// }
+///
+/// struct MyServiceState;
+///
+/// impl MyServiceState {
+///     async fn add(&self, req: AddReq) -> AddRes {
+///         AddRes(req.0 + req.1)
+///     }
+/// }
+///
+/// let service = RpcService::new().register::<MyService, _, _, _>(&MyServiceState, MyServiceState::add);
+/// ```
 pub struct RpcService<'a> {
-    map: BTreeMap<u64, Box<dyn Handler + Sync + 'a>>,
+    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Sync + 'a>>,
+    version: u32,
 }
 
 impl<'a> RpcService<'a> {
@@ -28,21 +58,28 @@ impl<'a> RpcService<'a> {
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
+            version: 0,
         }
     }
 
-    pub fn register<State, F, Fut, S>(&mut self, state: &'a State, f: F)
+    pub fn version(mut self, version: u32) -> Self {
+        self.version = version;
+        self
+    }
+
+    pub fn register<S, State, F, Fut>(mut self, state: &'a State, f: F) -> Self
     where
         State: Send + Sync + 'a,
-        F: Fn(&State, &mut S::Request) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<S::Response>> + Send + 'static,
+        F: Fn(&'a State, S::Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = S::Response> + Send + 'static,
         S: Service + Send + Sync + 'static,
         <S as Service>::Request: FromRequest + Send,
         <S as Service>::Response: ToResponse,
     {
         let id = S::ID;
+        let key = ServiceKey::new(id, self.version);
         self.map.insert(
-            id,
+            key,
             Box::new(FnHandler {
                 f,
                 state,
@@ -50,14 +87,34 @@ impl<'a> RpcService<'a> {
                 _future: std::marker::PhantomData,
             }),
         );
+        self
+    }
+
+    pub fn merge(mut self, other: Self) -> Self {
+        self.map.extend(other.map);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ServiceKey {
+    pub id: u32,
+    pub version: u32,
+}
+
+impl ServiceKey {
+    pub fn new(id: u32, version: u32) -> Self {
+        Self { id, version }
     }
 }
 
 #[async_trait]
-impl<'a> Handler for RpcService<'a> {
+impl<'a> RpcHandler for RpcService<'a> {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let id = req.header.service_id;
-        if let Some(handler) = self.map.get(&id) {
+        let version = req.header.service_version;
+        let key = ServiceKey::new(id, version);
+        if let Some(handler) = self.map.get(&key) {
             return handler.call(req).await;
         }
         Ok(Response::new(
@@ -75,18 +132,44 @@ pub struct FnHandler<'a, State, F, Fut, S> {
 }
 
 #[async_trait]
-impl<'a, State, F, Fut, S> Handler for FnHandler<'a, State, F, Fut, S>
+impl<'a, State, F, Fut, S> RpcHandler for FnHandler<'a, State, F, Fut, S>
 where
     State: Send + Sync + 'a,
-    Fut: Future<Output = Result<S::Response>> + Send,
-    F: Fn(&State, &mut S::Request) -> Fut + Send + Sync,
+    Fut: Future<Output = S::Response> + Send,
+    F: Fn(&'a State, S::Request) -> Fut + Send + Sync,
     S: Service + Send + Sync,
     <S as Service>::Request: FromRequest + Send,
     <S as Service>::Response: ToResponse,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let mut req = S::Request::from_request(req).await?;
-        let resp = (self.f)(self.state, &mut req).await?;
+        let resp = (self.f)(self.state, req).await;
         resp.to_response()
+    }
+}
+
+pub trait Handle<'a, State, S: Service> {
+    fn call(
+        &self,
+        state: &'a State,
+        req: S::Request,
+    ) -> impl Future<Output = S::Response> + Send + 'a;
+}
+
+impl<'a, F, Fut, S, State> Handle<'a, State, S> for F
+where
+    Fut: Future<Output = S::Response> + Send + 'a,
+    F: Fn(&'a State, S::Request) -> Fut + Send + Sync + 'a,
+    S: Service + Send + Sync,
+    S::Request: Send,
+    S::Response: Send,
+    State: Send + Sync + 'a,
+{
+    fn call(
+        &self,
+        state: &'a State,
+        req: S::Request,
+    ) -> impl Future<Output = S::Response> + Send + 'a {
+        (self)(state, req)
     }
 }

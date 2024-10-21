@@ -12,6 +12,7 @@ tokio = { workspace = true, features = [
     "rt",
     "net",
     "rt-multi-thread",
+    "io-util",
 ] }
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = { version = "1.7" }

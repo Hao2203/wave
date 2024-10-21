@@ -7,7 +7,7 @@ pub trait Service {
     type Request;
     type Response;
 
-    const ID: u64;
+    const ID: u32;
 }
 
 pub trait Call<S: Service> {
