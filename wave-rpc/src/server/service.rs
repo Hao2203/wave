@@ -1,14 +1,14 @@
 use super::{code::ErrorCode, Result};
 use crate::{Body, Request, Response, Service};
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use std::{collections::BTreeMap, future::Future};
 
 #[cfg(feature = "bincode")]
 pub mod bincode;
 
-#[async_trait]
 pub trait RpcHandler {
-    async fn call(&self, req: &mut Request) -> Result<Response>;
+    fn call(&self, req: Request) -> BoxFuture<Result<Response>>;
 }
 
 pub trait FromRequest: Sized {
@@ -108,43 +108,45 @@ impl ServiceKey {
     }
 }
 
-#[async_trait]
 impl<'a> RpcHandler for RpcService<'a> {
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        let id = req.header.service_id;
-        let version = req.header.service_version;
-        let key = ServiceKey::new(id, version);
-        if let Some(handler) = self.map.get(&key) {
-            return handler.call(req).await;
-        }
-        Ok(Response::new(
-            ErrorCode::ServiceNotFound as u16,
-            Body::new_empty(),
-        ))
+    fn call(&self, req: &mut Request) -> BoxFuture<'_, Result<Response>> {
+        let fut = async {
+            let id = req.header.service_id;
+            let version = req.header.service_version;
+            let key = ServiceKey::new(id, version);
+            if let Some(handler) = self.map.get(&key) {
+                return handler.call(req).await;
+            }
+            Ok(Response::new(
+                ErrorCode::ServiceNotFound as u16,
+                Body::new_empty(),
+            ))
+        };
+        Box::pin(fut)
     }
 }
 
-pub struct FnHandler<'a, State, F, Fut, S> {
+pub struct FnHandler<'a, State, F, S> {
     f: F,
     state: &'a State,
     _service: std::marker::PhantomData<fn() -> S>,
-    _future: std::marker::PhantomData<fn() -> Fut>,
 }
 
-#[async_trait]
-impl<'a, State, F, Fut, S> RpcHandler for FnHandler<'a, State, F, Fut, S>
+impl<'a, State, F, S> RpcHandler for FnHandler<'a, State, F, S>
 where
     State: Send + Sync + 'a,
-    Fut: Future<Output = S::Response> + Send,
-    F: Fn(&'a State, S::Request) -> Fut + Send + Sync,
+    F: Handle<'a, State, S> + Send + Sync + 'a,
     S: Service + Send + Sync,
     <S as Service>::Request: FromRequest + Send,
     <S as Service>::Response: ToResponse,
 {
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        let mut req = S::Request::from_request(req).await?;
-        let resp = (self.f)(self.state, req).await;
-        resp.to_response()
+    fn call(&self, mut req: Request) -> BoxFuture<'_, Result<Response>> {
+        let fut = async move {
+            let mut req = S::Request::from_request(&mut req).await?;
+            let resp = (self.f).call(self.state, req).await;
+            resp.to_response()
+        };
+        Box::pin(fut)
     }
 }
 
