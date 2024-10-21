@@ -47,20 +47,43 @@ pub trait ToResponse {
 ///     }
 /// }
 ///
-/// let service = RpcService::new().register::<MyService,_>(&MyServiceState, MyServiceState::add);
+/// let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
 /// ```
-pub struct RpcService<'a> {
+pub struct RpcService<'a, S> {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Sync + 'a>>,
+    state: &'a S,
     version: u32,
 }
 
-impl<'a> RpcService<'a> {
+impl<'a> RpcService<'a, ()> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
+            state: &(),
             version: 0,
         }
+    }
+}
+impl<'a, State> RpcService<'a, State> {
+    pub fn with_state(state: &'a State) -> Self {
+        Self {
+            map: BTreeMap::new(),
+            state,
+            version: 0,
+        }
+    }
+
+    pub fn set_state<State2>(mut self, state: &'a State2) -> RpcService<'a, State2> {
+        RpcService {
+            map: self.map,
+            state,
+            version: self.version,
+        }
+    }
+
+    pub fn clear_state(self) -> RpcService<'a, ()> {
+        self.set_state(&())
     }
 
     pub fn version(mut self, version: u32) -> Self {
@@ -68,11 +91,7 @@ impl<'a> RpcService<'a> {
         self
     }
 
-    pub fn register<S, State>(
-        mut self,
-        state: &'a State,
-        f: impl Handle<&'a State, S> + Send + Sync + 'a,
-    ) -> Self
+    pub fn register<S>(mut self, f: impl Handle<&'a State, S> + Send + Sync + 'a) -> Self
     where
         State: Send + Sync + 'a,
         S: Service + Send + Sync + 'static,
@@ -85,16 +104,27 @@ impl<'a> RpcService<'a> {
             key,
             Box::new(FnHandler {
                 f,
-                state,
+                state: self.state,
                 _service: std::marker::PhantomData::<fn() -> S>,
             }),
         );
         self
     }
 
-    pub fn merge(mut self, other: Self) -> Self {
+    pub fn merge<State2>(mut self, other: RpcService<'a, State2>) -> Self {
         self.map.extend(other.map);
         self
+    }
+
+    pub fn merge_with_state<State2>(
+        mut self,
+        other: RpcService<'a, State2>,
+    ) -> RpcService<'a, State2>
+    where
+        State2: Send + Sync + 'a,
+    {
+        self.map.extend(other.map);
+        self.set_state(other.state)
     }
 }
 
@@ -111,7 +141,10 @@ impl ServiceKey {
 }
 
 #[async_trait]
-impl<'a> RpcHandler for RpcService<'a> {
+impl<'a, State> RpcHandler for RpcService<'a, State>
+where
+    State: Send + Sync + 'a,
+{
     async fn call(&self, req: Request) -> Result<Response> {
         let id = req.header.service_id;
         let version = req.header.service_version;
