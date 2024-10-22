@@ -1,24 +1,8 @@
-use super::{code::ErrorCode, Result};
+use super::{code::ErrorCode, request::FromRequest, response::ToResponse, Result, RpcHandler};
 use crate::{Body, Request, Response, Service};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use std::{collections::BTreeMap, future::Future};
-
-#[cfg(feature = "bincode")]
-pub mod bincode;
-
-#[async_trait]
-pub trait RpcHandler {
-    async fn call(&self, req: Request) -> Result<Response>;
-}
-
-pub trait FromRequest: Sized {
-    fn from_request(req: &mut Request) -> impl Future<Output = Result<Self>> + Send;
-}
-
-pub trait ToResponse {
-    fn to_response(&self) -> Result<Response>;
-}
 
 /// ```rust
 /// use wave_rpc::server::RpcService;
@@ -159,7 +143,7 @@ where
     }
 }
 
-pub struct FnHandler<'a, State, F, S> {
+struct FnHandler<'a, State, F, S> {
     f: F,
     state: &'a State,
     _service: std::marker::PhantomData<fn() -> S>,

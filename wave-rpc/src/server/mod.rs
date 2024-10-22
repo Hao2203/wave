@@ -1,18 +1,28 @@
 #![allow(unused)]
+use std::future::Future;
+
 use crate::error::{Error, Result};
+use crate::Response;
 use crate::{
     request::{Header, Request},
     Body,
 };
 use async_stream::stream;
+use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
-use service::RpcHandler;
 pub use service::RpcService;
 
 // pub mod error;
 pub mod code;
+pub mod request;
+pub mod response;
 pub mod service;
+
+#[async_trait]
+pub trait RpcHandler {
+    async fn call(&self, req: Request) -> Result<Response>;
+}
 
 pub struct RpcServer {
     max_body_size: usize,

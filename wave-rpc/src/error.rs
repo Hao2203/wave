@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-pub type Result<T> = core::result::Result<T, Error>;
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
