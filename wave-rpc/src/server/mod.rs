@@ -1,17 +1,14 @@
-#![allow(unused)]
-use std::future::Future;
-
-use crate::error::{Error, Result};
+use crate::body::BodyCodec;
+use crate::error::Result;
+use crate::request::Request;
+use crate::request::RequestCodec;
+use crate::response::ResponseCodec;
 use crate::Response;
-use crate::{
-    request::{Header, Request},
-    Body,
-};
-use async_stream::stream;
 use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 pub use service::RpcService;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 // pub mod error;
 pub mod code;
@@ -26,49 +23,26 @@ pub struct RpcServer {
     max_body_size: usize,
 }
 
-// impl RpcServer {
-//     pub async fn serve(
-//         &self,
-//         service: impl Handler,
-//         io: (impl AsyncRead + Unpin + Send, impl AsyncWrite + Unpin),
-//     ) -> Result<()> {
-//         let (mut io_read, mut io_write) = io;
+impl RpcServer {
+    pub async fn serve(
+        &self,
+        service: impl RpcHandler,
+        io: (impl AsyncRead + Unpin + Send, impl AsyncWrite + Unpin),
+    ) -> Result<()> {
+        let (mut io_read, mut io_write) = io;
 
-//         let header = &Header::from_reader(&mut io_read).await?;
+        let body_codec = BodyCodec::new(self.max_body_size);
+        let request_codec = RequestCodec::new(body_codec);
+        let response_codec = ResponseCodec::new(body_codec);
+        let mut frame_read = FramedRead::new(&mut io_read, request_codec);
+        let mut frame_write = FramedWrite::new(&mut io_write, response_codec);
 
-//         if header.body_size > self.max_body_size as u64 {
-//             return Err(anyhow!("body size too large"));
-//         }
+        while let Some(req) = frame_read.next().await {
+            let mut req = req?;
+            let res = service.call(&mut req).await?;
+            frame_write.send(res).await?;
+        }
 
-//         let body: Body = match header.body_type {
-//             BodyType::Bytes => {
-//                 let mut bytes = BytesMut::with_capacity(header.body_size as usize);
-//                 io_read.read_buf(&mut bytes).await?;
-//                 Body::Bytes(bytes.into())
-//             }
-//             BodyType::Stream => {
-//                 let stream = stream! {
-//                     for _ in 0..u32::MAX {
-//                         let mut bytes = BytesMut::with_capacity(header.body_size());
-//                         io_read.read_buf(&mut bytes).await?;
-//                         yield Ok(Bytes::from(bytes));
-//                     }
-//                 };
-//                 Body::Stream(Box::pin(stream))
-//             }
-//         };
-
-//         let req = Request { header, body };
-
-//         let mut resp = service.call(req).await?;
-
-//         io_write.write_all(resp.header().as_bytes()).await?;
-
-//         while let Some(bytes) = resp.body_mut().next().await {
-//             io_write.write_all(&bytes?).await?;
-//         }
-//         io_write.shutdown().await?;
-
-//         Ok(())
-//     }
-// }
+        Ok(())
+    }
+}

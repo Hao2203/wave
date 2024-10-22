@@ -1,7 +1,6 @@
 use super::{code::ErrorCode, Result, RpcHandler};
 use crate::{Body, Request, Response, Service};
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, future::Future};
 
@@ -59,7 +58,7 @@ impl<'a, State> RpcService<'a, State> {
         }
     }
 
-    pub fn set_state<State2>(mut self, state: &'a State2) -> RpcService<'a, State2> {
+    pub fn set_state<State2>(self, state: &'a State2) -> RpcService<'a, State2> {
         RpcService {
             map: self.map,
             state,
@@ -160,7 +159,7 @@ where
     <S as Service>::Response: Serialize + Send,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
-        let mut req = req.body().bincode_decode()?;
+        let req = req.body().bincode_decode()?;
         let resp = (self.f).call(self.state, req).await;
         let body = Body::bincode_encode(resp)?;
         Ok(Response::success(body))

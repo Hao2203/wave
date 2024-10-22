@@ -1,5 +1,5 @@
 use crate::{
-    error::Result,
+    error::{Error, Result},
     {body::BodyCodec, Body},
 };
 use bytes::{Buf, BufMut, BytesMut};
@@ -44,7 +44,7 @@ impl ResponseCodec {
 }
 
 impl Encoder<Response> for ResponseCodec {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let Response { body, code } = item;
@@ -57,7 +57,7 @@ impl Encoder<Response> for ResponseCodec {
 
 impl Decoder for ResponseCodec {
     type Item = Response;
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < Response::CODE_LEN {

@@ -1,6 +1,6 @@
 use crate::{
     body::{Body, BodyCodec},
-    error::Result,
+    error::{Error, ErrorKind, Result},
 };
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -68,7 +68,7 @@ impl RequestCodec {
 }
 
 impl Encoder<Request> for RequestCodec {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let Request { header, body } = item;
@@ -82,7 +82,7 @@ impl Encoder<Request> for RequestCodec {
 
 impl Decoder for RequestCodec {
     type Item = Request;
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < Header::SIZE {
@@ -92,8 +92,10 @@ impl Decoder for RequestCodec {
         let header = {
             let mut header_buf = Header::buffer();
             src.copy_to_slice(&mut header_buf[..]);
-            *Header::try_ref_from_bytes(&header_buf[..])
-                .map_err(|e| anyhow::anyhow!("Can't parse header from bytes, error: {}", e))?
+            *Header::try_ref_from_bytes(&header_buf[..]).map_err(|e| {
+                eprintln!("Can't parse header from bytes, error: {}", e);
+                ErrorKind::ParseHeaderFromBytesFailed
+            })?
         };
 
         let body = self.body_codec.decode(src)?;

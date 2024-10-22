@@ -31,4 +31,7 @@ pub enum ErrorKind {
 
     #[error("body too large")]
     BodyTooLarge,
+
+    #[error("parse header from bytes failed")]
+    ParseHeaderFromBytesFailed,
 }
