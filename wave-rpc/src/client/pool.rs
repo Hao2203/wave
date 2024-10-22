@@ -1,6 +1,5 @@
-use std::future::Future;
-
 use deadpool::managed::Manager;
+use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait MakeConnection {
