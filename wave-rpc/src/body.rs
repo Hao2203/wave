@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::error::{Error, ErrorKind, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
@@ -9,7 +9,7 @@ pub struct Body {
 }
 
 impl Body {
-    pub const MAX_LEN: usize = u64::MAX as usize;
+    pub const LENTH_SIZE: usize = 8;
 
     pub fn new(data: Bytes) -> Self {
         Self { data }
@@ -50,6 +50,20 @@ impl Body {
     }
 }
 
+#[cfg(feature = "rmp")]
+impl Body {
+    pub fn rmp_encode(data: impl Serialize) -> Result<Self> {
+        let bytes = rmp_serde::to_vec(&data)?;
+        Ok(Self::new(bytes.into()))
+    }
+
+    pub fn rmp_decode<'a, T: Deserialize<'a>>(&'a self) -> Result<T> {
+        let bytes = self.as_slice();
+        let value = rmp_serde::from_slice(bytes)?;
+        Ok(value)
+    }
+}
+
 pub struct BodyCodec {
     max_size: usize,
 }
@@ -61,13 +75,13 @@ impl BodyCodec {
 }
 
 impl Encoder<Body> for BodyCodec {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if item.len() > self.max_size {
-            return Err(anyhow::anyhow!("body too large"));
+            return Err(ErrorKind::BodyTooLarge)?;
         }
-        dst.reserve(item.len() + 8); // 8 bytes for length
+        dst.reserve(item.len() + Body::LENTH_SIZE); // 8 bytes for length
         dst.put_u64_le(item.len() as u64);
         dst.extend_from_slice(item.as_slice());
         Ok(())
@@ -76,16 +90,16 @@ impl Encoder<Body> for BodyCodec {
 
 impl Decoder for BodyCodec {
     type Item = Body;
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // 8 bytes for length
-        if src.len() < 8 {
+        if src.len() < Body::LENTH_SIZE {
             return Ok(None);
         }
         let length = src.get_u64_le();
 
-        if src.len() < length as usize {
+        if src.len() < length as usize + Body::LENTH_SIZE {
             return Ok(None);
         }
         let data = src.split_to(length as usize);

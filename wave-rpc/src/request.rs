@@ -1,6 +1,6 @@
 use crate::{
     body::{Body, BodyCodec},
-    Result,
+    error::Result,
 };
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};

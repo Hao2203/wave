@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::error::Result;
 use futures::future::BoxFuture;
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};

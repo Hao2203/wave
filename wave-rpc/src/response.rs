@@ -1,5 +1,5 @@
 use crate::{
-    Result,
+    error::Result,
     {body::BodyCodec, Body},
 };
 use bytes::{Buf, BufMut, BytesMut};
