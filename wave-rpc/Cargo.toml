@@ -28,6 +28,7 @@ bincode = { version = "1", optional = true }
 
 zerocopy = { version = "0.8", features = ["derive"] }
 
+deadpool = { version = "0.12", features = ["rt_tokio_1"] }
 
 [features]
 default = ["bincode"]

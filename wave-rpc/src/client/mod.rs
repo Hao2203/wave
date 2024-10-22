@@ -1,9 +1,15 @@
 #![allow(unused)]
-use crate::{service::Call, Request, Response, Service};
+use crate::{error::Result, Request, Response, Service};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub trait MakeConnection {
-    fn make_connection(&self) -> (impl AsyncRead + Unpin, impl AsyncWrite + Unpin);
+pub mod pool;
+
+pub trait Call<S: Service> {
+    fn call(
+        &self,
+        req: S::Request,
+    ) -> impl std::future::Future<Output = Result<S::Response>> + Send;
 }
 
 pub struct RpcClient<T> {
@@ -19,8 +25,8 @@ pub struct Caller<R, W> {
 impl<R, W, S> Call<S> for Caller<R, W>
 where
     S: Service,
-    <S as Service>::Request: Send,
-    <S as Service>::Response: Send,
+    <S as Service>::Request: Serialize + Send,
+    <S as Service>::Response: for<'a> Deserialize<'a> + Send,
     R: AsyncRead + Unpin + Send + Sync,
     W: AsyncWrite + Unpin + Send + Sync,
 {

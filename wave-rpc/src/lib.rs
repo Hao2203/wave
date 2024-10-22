@@ -1,43 +1,39 @@
 //! # Examples
 //!
 //! ```rust
+//! use wave_rpc::server::RpcService;
 //! use wave_rpc::service::Service;
-//! use std::future::Future;
-//! use anyhow::Result;
-//! use server::RpcServer;
 //!
 //! struct MyService;
 //!
+//! #[derive(serde::Serialize, serde::Deserialize)]
 //! struct AddReq(u32, u32);
 //!
-//! impl Service<AddReq> for MyService {
-//!     type Response = u32;
-//!     type Key = ();
+//! #[derive(serde::Serialize, serde::Deserialize)]
+//! struct AddRes(u32);
 //!
-//!     const KEY: Self::Key = ();
+//! impl Service for MyService {
+//!     type Request = AddReq;
+//!     type Response = AddRes;
 //!
-//!     async fn call(&self, req: AddReq) -> Result<Self::Response> {
-//!         Ok(req.0 + req.1)
+//!     const ID: u32 = 1;
+//! }
+//!
+//! struct MyServiceState;
+//!
+//! impl MyServiceState {
+//!     async fn add(&self, req: AddReq) -> AddRes {
+//!         AddRes(req.0 + req.1)
 //!     }
 //! }
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<()> {
-//!     let mut server = RpcServer::new();
-//!
-//!     server.register::<MyService, AddReq>(&MyService);
-//!
-//!     Ok(())
-//! }
+//! let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
 //!
 //! ```
-//!
-//!
 //!
 
 pub mod body;
 pub mod client;
-pub mod codec;
 pub mod error;
 pub mod request;
 pub mod response;
