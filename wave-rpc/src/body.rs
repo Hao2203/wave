@@ -1,4 +1,6 @@
+use crate::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
 #[non_exhaustive]
@@ -31,6 +33,20 @@ impl Body {
 
     pub fn into_bytes(self) -> Bytes {
         self.data
+    }
+}
+
+#[cfg(feature = "bincode")]
+impl Body {
+    pub fn bincode_encode(data: impl Serialize) -> Result<Self> {
+        let bytes = bincode::serialize(&data)?;
+        Ok(Self::new(bytes.into()))
+    }
+
+    pub fn bincode_decode<'a, T: Deserialize<'a>>(&'a self) -> Result<T> {
+        let bytes = self.as_slice();
+        let value = bincode::deserialize(bytes)?;
+        Ok(value)
     }
 }
 

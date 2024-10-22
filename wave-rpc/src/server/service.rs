@@ -1,7 +1,8 @@
-use super::{code::ErrorCode, request::FromRequest, response::ToResponse, Result, RpcHandler};
+use super::{code::ErrorCode, Result, RpcHandler};
 use crate::{Body, Request, Response, Service};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, future::Future};
 
 /// ```rust
@@ -79,8 +80,8 @@ impl<'a, State> RpcService<'a, State> {
     where
         State: Send + Sync + 'a,
         S: Service + Send + Sync + 'static,
-        <S as Service>::Request: FromRequest + Send,
-        <S as Service>::Response: ToResponse + Send,
+        <S as Service>::Request: for<'b> Deserialize<'b> + Send,
+        <S as Service>::Response: Serialize + Send,
     {
         let id = S::ID;
         let key = ServiceKey::new(id, self.version);
@@ -129,7 +130,7 @@ impl<'a, State> RpcHandler for RpcService<'a, State>
 where
     State: Send + Sync + 'a,
 {
-    async fn call(&self, req: Request) -> Result<Response> {
+    async fn call(&self, req: &mut Request) -> Result<Response> {
         let id = req.header.service_id;
         let version = req.header.service_version;
         let key = ServiceKey::new(id, version);
@@ -155,13 +156,14 @@ where
     State: Send + Sync + 'a,
     F: Handle<&'a State, S> + Send + Sync,
     S: Service + Send + Sync,
-    <S as Service>::Request: FromRequest + Send,
-    <S as Service>::Response: ToResponse,
+    <S as Service>::Request: for<'b> Deserialize<'b> + Send,
+    <S as Service>::Response: Serialize + Send,
 {
-    async fn call(&self, mut req: Request) -> Result<Response> {
-        let mut req = S::Request::from_request(&mut req).await?;
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        let mut req = req.body().bincode_decode()?;
         let resp = (self.f).call(self.state, req).await;
-        resp.to_response()
+        let body = Body::bincode_encode(resp)?;
+        Ok(Response::success(body))
     }
 }
 

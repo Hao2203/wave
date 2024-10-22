@@ -15,13 +15,11 @@ pub use service::RpcService;
 
 // pub mod error;
 pub mod code;
-pub mod request;
-pub mod response;
 pub mod service;
 
 #[async_trait]
 pub trait RpcHandler {
-    async fn call(&self, req: Request) -> Result<Response>;
+    async fn call(&self, req: &mut Request) -> Result<Response>;
 }
 
 pub struct RpcServer {

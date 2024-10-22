@@ -1,4 +1,7 @@
-use crate::{body::BodyCodec, Body};
+use crate::{
+    Result,
+    {body::BodyCodec, Body},
+};
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
