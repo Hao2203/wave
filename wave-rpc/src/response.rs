@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    {body::BodyCodec, Body},
+    Body,
 };
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
@@ -33,29 +33,20 @@ impl Response {
     }
 }
 
-pub struct ResponseCodec {
-    body_codec: BodyCodec,
+pub struct ResponseDecoder<T> {
+    codec: T,
 }
 
-impl ResponseCodec {
-    pub fn new(body_codec: BodyCodec) -> Self {
-        Self { body_codec }
+impl<T> ResponseDecoder<T> {
+    pub fn new(codec: T) -> Self {
+        Self { codec }
     }
 }
 
-impl Encoder<Response> for ResponseCodec {
-    type Error = Error;
-
-    fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let Response { body, code } = item;
-        dst.reserve(Response::CODE_LEN);
-        dst.put_u16(code);
-        self.body_codec.encode(body, dst)?;
-        Ok(())
-    }
-}
-
-impl Decoder for ResponseCodec {
+impl<T> Decoder for ResponseDecoder<T>
+where
+    T: Decoder<Item = Body, Error = Error>,
+{
     type Item = Response;
     type Error = Error;
 
@@ -65,7 +56,58 @@ impl Decoder for ResponseCodec {
         }
         let code = src.get_u16();
 
-        let body = self.body_codec.decode(src)?;
+        let body = self.codec.decode(src)?;
         Ok(body.map(|body| Response { code, body }))
+    }
+}
+
+impl<T, B> Encoder<B> for ResponseDecoder<T>
+where
+    T: Encoder<B, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: B, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.codec.encode(item, dst)
+    }
+}
+
+pub struct ResponseEncoder<T> {
+    codec: T,
+}
+
+impl<T> ResponseEncoder<T> {
+    pub fn new(codec: T) -> Self {
+        Self { codec }
+    }
+}
+
+impl<T> Decoder for ResponseEncoder<T>
+where
+    T: Decoder,
+{
+    type Error = T::Error;
+    type Item = T::Item;
+
+    fn decode(
+        &mut self,
+        src: &mut BytesMut,
+    ) -> std::result::Result<Option<Self::Item>, Self::Error> {
+        self.codec.decode(src)
+    }
+}
+
+impl<T> Encoder<Response> for ResponseEncoder<T>
+where
+    T: Encoder<Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let Response { body, code } = item;
+        dst.reserve(Response::CODE_LEN);
+        dst.put_u16(code);
+        self.codec.encode(body, dst)?;
+        Ok(())
     }
 }

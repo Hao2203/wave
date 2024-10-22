@@ -1,5 +1,5 @@
 use crate::{
-    body::{Body, BodyCodec},
+    body::Body,
     error::{Error, ErrorKind, Result},
 };
 use bytes::{Buf, BytesMut};
@@ -57,30 +57,20 @@ impl Header {
     }
 }
 
-pub struct RequestCodec {
-    body_codec: BodyCodec,
+pub struct RequestDecoder<T> {
+    codec: T,
 }
 
-impl RequestCodec {
-    pub fn new(body_codec: BodyCodec) -> Self {
-        Self { body_codec }
+impl<T> RequestDecoder<T> {
+    pub fn new(codec: T) -> Self {
+        Self { codec }
     }
 }
 
-impl Encoder<Request> for RequestCodec {
-    type Error = Error;
-
-    fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let Request { header, body } = item;
-        let header_bytes = header.as_bytes();
-        dst.reserve(header_bytes.len() + body.len());
-        dst.extend_from_slice(header_bytes);
-        self.body_codec.encode(body, dst)?;
-        Ok(())
-    }
-}
-
-impl Decoder for RequestCodec {
+impl<T> Decoder for RequestDecoder<T>
+where
+    T: Decoder<Item = Body, Error = Error>,
+{
     type Item = Request;
     type Error = Error;
 
@@ -98,8 +88,57 @@ impl Decoder for RequestCodec {
             })?
         };
 
-        let body = self.body_codec.decode(src)?;
+        let body = self.codec.decode(src)?;
 
         Ok(body.map(|body| Request { header, body }))
+    }
+}
+
+impl<T, B> Encoder<B> for RequestDecoder<T>
+where
+    T: Encoder<B, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: B, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.codec.encode(item, dst)
+    }
+}
+
+pub struct RequestEncoder<T> {
+    codec: T,
+}
+
+impl<T> RequestEncoder<T> {
+    pub fn new(codec: T) -> Self {
+        Self { codec }
+    }
+}
+
+impl<T> Encoder<Request> for RequestEncoder<T>
+where
+    T: Encoder<Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let Request { header, body } = item;
+        let header_bytes = header.as_bytes();
+        dst.reserve(header_bytes.len() + body.len());
+        dst.extend_from_slice(header_bytes);
+        self.codec.encode(body, dst)?;
+        Ok(())
+    }
+}
+
+impl<T> Decoder for RequestEncoder<T>
+where
+    T: Decoder<Error = Error>,
+{
+    type Item = T::Item;
+    type Error = Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        self.codec.decode(src)
     }
 }

@@ -1,31 +1,34 @@
+use std::future::Future;
+
 use deadpool::managed::Manager;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait MakeConnection {
-    fn make_connection(&self) -> (impl AsyncRead + Unpin, impl AsyncWrite + Unpin);
+    fn make_connection(&self) -> impl Future<Output = impl DynConnection> + Send;
 }
 
-struct Connection {
-    reader: Box<dyn AsyncRead + Send + Unpin>,
-    writer: Box<dyn AsyncWrite + Send + Unpin>,
+pub trait DynConnection: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T> DynConnection for T where T: AsyncRead + AsyncWrite + Send + Unpin {}
+
+struct Connection<T> {
+    io: T,
 }
 
-impl Connection {}
-
-pub struct Pool<T> {
-    manger: T,
+pub struct Pool<'a, T> {
+    manger: &'a T,
 }
 
-impl<T> Manager for Pool<T>
+impl<'a, T> Manager for Pool<'a, T>
 where
     T: MakeConnection + Send + Sync,
 {
-    type Type = Connection;
+    type Type = Box<dyn DynConnection + Send + 'a>;
     type Error = std::io::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
-        let (reader, writer) = self.manger.make_connection();
-        Ok(Connection { reader, writer })
+        let conn = self.manger.make_connection().await;
+        Ok(Box::new(conn))
     }
 
     async fn recycle(
