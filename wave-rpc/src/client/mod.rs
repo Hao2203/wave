@@ -23,8 +23,8 @@ pub trait Call<S: Service> {
     ) -> impl std::future::Future<Output = Result<S::Response>> + Send;
 }
 
-/// ```rust
-/// use wave_rpc::client::RpcClient;
+/// ```no_run
+/// use wave_rpc::client::RpcBuilder;
 /// use wave_rpc::service::Service;
 /// use wave_rpc::server::RpcService;
 /// use tokio::net::{TcpStream, TcpListener};
@@ -44,11 +44,14 @@ pub trait Call<S: Service> {
 ///     const ID: u32 = 1;
 /// }
 ///
-/// let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
-/// let client = RpcClient::new(1024 * 1024 * 10);
-/// let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
-///
-/// let req = AddReq(1, 2);
+/// #[tokio::main]
+/// async fn main() {
+///     let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
+///     let builder = RpcBuilder::new(1024 * 1024 * 10);
+///     let mut client = builder.build_client(conn).await.unwrap();
+///     let req = AddReq(1, 2);
+///     let res = client.call::<MyService>(req).await.unwrap();
+/// }
 ///
 /// ```
 pub struct RpcBuilder {

@@ -27,7 +27,31 @@
 //!     }
 //! }
 //!
-//! let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
+//! #[tokio::main]
+//! async fn main() {
+//!     use tokio::net::{TcpListener, TcpStream};
+//!     use tokio::task;
+//!
+//!     dbg!("starting");
+//!     let task1 = task::spawn(async move {
+//!         let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
+//!         let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+//!         dbg!("listening");
+//!         let conn = listener.accept().await.unwrap().0;
+//!         dbg!("connected");
+//!         let server = wave_rpc::server::RpcServer::new(1024);
+//!         server.serve(service, conn).await.unwrap();
+//!     });
+//!     let task2 = task::spawn(async move {
+//!         let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
+//!         dbg!("client connected");
+//!         let mut client = wave_rpc::client::RpcBuilder::new(1024).build_client(conn).await.unwrap();
+//!         let res = client.call::<MyService>(AddReq(1, 2)).await.unwrap();
+//!         assert_eq!(res.0, 3);
+//!     });
+//!     task1.await.unwrap();
+//!     task2.await.unwrap();
+//! }
 //!
 //! ```
 //!

@@ -34,7 +34,7 @@ use std::{collections::BTreeMap, future::Future};
 /// let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
 /// ```
 pub struct RpcService<'a, S> {
-    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Sync + 'a>>,
+    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync + 'a>>,
     state: &'a S,
     version: Version,
 }
@@ -185,4 +185,16 @@ where
     fn call(&self, state: State, req: S::Request) -> impl Future<Output = S::Response> + Send {
         (self)(state, req)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test() {
+        is_send::<RpcService<'_, ()>>();
+    }
+
+    fn is_send<T: Send>() {}
 }

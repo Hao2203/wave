@@ -19,7 +19,7 @@ pub trait RpcHandler {
     async fn call(&self, req: &mut Request) -> Result<Response>;
 }
 
-/// ```rust
+/// ```no_run
 /// use wave_rpc::server::RpcService;
 /// use wave_rpc::service::Service;
 /// use tokio::net::TcpListener;
@@ -54,7 +54,7 @@ pub trait RpcHandler {
 ///     let conn = listener.accept().await.unwrap().0;
 ///
 ///     let server = wave_rpc::server::RpcServer::new(1024);
-///     server.serve(service, conn);
+///     server.serve(service, conn).await.unwrap();
 /// }
 ///
 /// ```
