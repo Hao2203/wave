@@ -1,6 +1,7 @@
 use crate::{
     body::Body,
     error::{Error, Result},
+    service::Version,
     Service,
 };
 use bytes::{Buf, BytesMut};
@@ -15,14 +16,14 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn new<S>(req: S::Request, service_version: u32) -> Result<Self>
+    pub fn new<S>(req: S::Request, service_version: impl Into<Version>) -> Result<Self>
     where
         S: Service,
         S::Request: Serialize,
     {
         let header = Header {
             service_id: S::ID,
-            service_version,
+            service_version: service_version.into().into(),
         };
         let body = Body::bincode_encode(&req)?;
         Ok(Self { header, body })

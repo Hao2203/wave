@@ -19,11 +19,53 @@ pub trait RpcHandler {
     async fn call(&self, req: &mut Request) -> Result<Response>;
 }
 
+/// ```rust
+/// use wave_rpc::server::RpcService;
+/// use wave_rpc::service::Service;
+/// use tokio::net::TcpListener;
+///
+/// struct MyService;
+///
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct AddReq(u32, u32);
+///
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct AddRes(u32);
+///
+/// impl Service for MyService {
+///     type Request = AddReq;
+///     type Response = AddRes;
+///
+///     const ID: u32 = 1;
+/// }
+///
+/// struct MyServiceState;
+///
+/// impl MyServiceState {
+///     async fn add(&self, req: AddReq) -> AddRes {
+///         AddRes(req.0 + req.1)
+///     }
+/// }
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
+///     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+///     let conn = listener.accept().await.unwrap().0;
+///
+///     let server = wave_rpc::server::RpcServer::new(1024);
+///     server.serve(service, conn);
+/// }
+///
+/// ```
 pub struct RpcServer {
     max_body_size: usize,
 }
 
 impl RpcServer {
+    pub fn new(max_body_size: usize) -> Self {
+        Self { max_body_size }
+    }
     pub async fn serve(
         &self,
         service: impl RpcHandler,

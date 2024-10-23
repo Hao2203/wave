@@ -1,5 +1,5 @@
 use super::{code::ErrorCode, Result, RpcHandler};
-use crate::{Body, Request, Response, Service};
+use crate::{service::Version, Body, Request, Response, Service};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, future::Future};
@@ -36,7 +36,7 @@ use std::{collections::BTreeMap, future::Future};
 pub struct RpcService<'a, S> {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Sync + 'a>>,
     state: &'a S,
-    version: u32,
+    version: Version,
 }
 
 impl<'a> RpcService<'a, ()> {
@@ -45,7 +45,7 @@ impl<'a> RpcService<'a, ()> {
         Self {
             map: BTreeMap::new(),
             state: &(),
-            version: 0,
+            version: Default::default(),
         }
     }
 }
@@ -54,7 +54,7 @@ impl<'a, State> RpcService<'a, State> {
         Self {
             map: BTreeMap::new(),
             state,
-            version: 0,
+            version: Default::default(),
         }
     }
 
@@ -70,8 +70,8 @@ impl<'a, State> RpcService<'a, State> {
         self.set_state(&())
     }
 
-    pub fn version(mut self, version: u32) -> Self {
-        self.version = version;
+    pub fn version(mut self, version: impl Into<Version>) -> Self {
+        self.version = version.into();
         self
     }
 
@@ -115,12 +115,15 @@ impl<'a, State> RpcService<'a, State> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ServiceKey {
     pub id: u32,
-    pub version: u32,
+    pub version: Version,
 }
 
 impl ServiceKey {
-    pub fn new(id: u32, version: u32) -> Self {
-        Self { id, version }
+    pub fn new(id: u32, version: impl Into<Version>) -> Self {
+        Self {
+            id,
+            version: version.into(),
+        }
     }
 }
 
