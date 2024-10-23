@@ -1,13 +1,16 @@
 #![allow(unused)]
-use crate::{error::Result, Request, Response, Service};
+use crate::{Request, Response, Service};
+use error::{ClientError, Result};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 
+pub mod error;
 pub mod pool;
 
 pub trait Call<S: Service> {
     fn call(
-        &self,
+        &mut self,
         req: S::Request,
     ) -> impl std::future::Future<Output = Result<S::Response>> + Send;
 }
@@ -17,23 +20,30 @@ pub struct RpcClient<T> {
     pub codec: T,
 }
 
-pub struct Caller<R, W> {
-    io_read: R,
-    io_write: W,
+pub struct Caller<T> {
+    io: T,
+    service_version: u32,
 }
 
-impl<R, W, S> Call<S> for Caller<R, W>
+impl<T, S> Call<S> for Caller<T>
 where
     S: Service,
     <S as Service>::Request: Serialize + Send,
     <S as Service>::Response: for<'a> Deserialize<'a> + Send,
-    R: AsyncRead + Unpin + Send + Sync,
-    W: AsyncWrite + Unpin + Send + Sync,
+    T: Stream<Item = Response> + Sink<Request, Error = std::io::Error> + Send + Sync + Unpin,
 {
-    async fn call(
-        &self,
-        req: <S as Service>::Request,
-    ) -> crate::error::Result<<S as Service>::Response> {
-        todo!()
+    async fn call(&mut self, req: <S as Service>::Request) -> Result<<S as Service>::Response> {
+        let req = Request::new::<S>(req, self.service_version)?;
+        self.io.send(req).await?;
+        let res = self
+            .io
+            .next()
+            .await
+            .ok_or_else(|| ClientError::ReceiveResponseFailed)?;
+        if !res.is_success() {
+            Err(ClientError::ErrorWithCode(res.code()))?;
+        }
+        let res = res.into_body().bincode_decode()?;
+        Ok(res)
     }
 }

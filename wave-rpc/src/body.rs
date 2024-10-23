@@ -1,4 +1,4 @@
-use crate::error::{Error, ErrorKind, Result};
+use crate::error::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
@@ -80,7 +80,7 @@ impl Encoder<Body> for BodyCodec {
 
     fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if item.len() > self.max_size {
-            return Err(ErrorKind::BodyTooLarge)?;
+            return Err(Error::BodyTooLarge)?;
         }
         dst.reserve(item.len() + Body::LENTH_SIZE); // 8 bytes for length
         dst.put_u64_le(item.len() as u64);

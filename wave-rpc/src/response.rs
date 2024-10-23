@@ -12,6 +12,8 @@ pub struct Response {
 
 impl Response {
     pub const CODE_LEN: usize = 2;
+    pub const SUCCESS_CODE: u16 = 0;
+
     pub fn new(code: u16, body: Body) -> Self {
         Self { body, code }
     }
@@ -22,6 +24,14 @@ impl Response {
 
     pub fn body(&self) -> &Body {
         &self.body
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.code == Self::SUCCESS_CODE
+    }
+
+    pub fn code(&self) -> u16 {
+        self.code
     }
 
     pub fn into_body(self) -> Body {

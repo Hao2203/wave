@@ -1,8 +1,10 @@
 use crate::{
     body::Body,
-    error::{Error, ErrorKind, Result},
+    error::{Error, Result},
+    Service,
 };
 use bytes::{Buf, BytesMut};
+use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
@@ -13,6 +15,19 @@ pub struct Request {
 }
 
 impl Request {
+    pub fn new<S>(req: S::Request, service_version: u32) -> Result<Self>
+    where
+        S: Service,
+        S::Request: Serialize,
+    {
+        let header = Header {
+            service_id: S::ID,
+            service_version,
+        };
+        let body = Body::bincode_encode(&req)?;
+        Ok(Self { header, body })
+    }
+
     pub fn header(&self) -> &Header {
         &self.header
     }
@@ -84,7 +99,7 @@ where
             src.copy_to_slice(&mut header_buf[..]);
             *Header::try_ref_from_bytes(&header_buf[..]).map_err(|e| {
                 eprintln!("Can't parse header from bytes, error: {}", e);
-                ErrorKind::ParseHeaderFromBytesFailed
+                Error::ParseHeaderFromBytesFailed
             })?
         };
 
