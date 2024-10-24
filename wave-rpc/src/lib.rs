@@ -64,7 +64,7 @@ pub mod response;
 pub mod server;
 pub mod service;
 #[cfg(test)]
-mod test;
+mod tests;
 // pub mod transport;
 
 pub use body::Body;

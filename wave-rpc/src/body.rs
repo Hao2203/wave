@@ -66,7 +66,7 @@ impl Body {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BodyCodec {
+pub(crate) struct BodyCodec {
     max_size: usize,
 }
 

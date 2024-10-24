@@ -12,7 +12,7 @@ pub struct Response {
 }
 
 impl Response {
-    pub const CODE_LEN: usize = 2;
+    pub const CODE_SIZE: usize = 2;
     pub const SUCCESS_CODE: u16 = 0;
 
     pub fn new(code: u16, body: Body) -> Self {
@@ -44,7 +44,7 @@ impl Response {
     }
 }
 
-pub struct ResponseDecoder<T> {
+pub(crate) struct ResponseDecoder<T> {
     codec: T,
 }
 
@@ -62,7 +62,7 @@ where
     type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < Response::CODE_LEN {
+        if src.len() < Response::CODE_SIZE {
             return Ok(None);
         }
         let code = src.get_u16();
@@ -83,7 +83,7 @@ where
     }
 }
 
-pub struct ResponseEncoder<T> {
+pub(crate) struct ResponseEncoder<T> {
     codec: T,
 }
 
@@ -116,7 +116,7 @@ where
 
     fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let Response { body, code } = item;
-        dst.reserve(Response::CODE_LEN);
+        dst.reserve(Response::CODE_SIZE);
         dst.put_u16(code);
         self.codec.encode(body, dst)?;
         Ok(())

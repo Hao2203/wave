@@ -74,7 +74,7 @@ impl Header {
     }
 }
 
-pub struct RequestDecoder<T> {
+pub(crate) struct RequestDecoder<T> {
     codec: T,
 }
 
@@ -122,7 +122,7 @@ where
     }
 }
 
-pub struct RequestEncoder<T> {
+pub(crate) struct RequestEncoder<T> {
     codec: T,
 }
 
