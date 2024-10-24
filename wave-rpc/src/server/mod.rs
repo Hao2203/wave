@@ -77,10 +77,14 @@ impl RpcServer {
         let framed = Framed::new(io, response_codec);
         let (mut sink, mut stream) = framed.split();
 
-        while let Some(req) = stream.next().await {
+        if let Some(req) = stream.next().await {
+            println!("start process request");
+
             let mut req = req?;
             let res = service.call(&mut req).await?;
             sink.send(res).await?;
+
+            println!("finish process request");
         }
 
         Ok(())

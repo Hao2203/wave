@@ -5,6 +5,7 @@ use crate::{
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
+#[derive(Debug, Clone)]
 pub struct Response {
     code: u16,
     body: Body,

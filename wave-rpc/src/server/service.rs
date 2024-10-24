@@ -2,7 +2,7 @@ use super::{code::ErrorCode, Result, RpcHandler};
 use crate::{service::Version, Body, Request, Response, Service};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, future::Future};
+use std::{collections::BTreeMap, future::Future, sync::Arc};
 
 /// ```rust
 /// use wave_rpc::server::RpcService;
@@ -143,6 +143,46 @@ where
             ErrorCode::ServiceNotFound as u16,
             Body::new_empty(),
         ))
+    }
+}
+
+#[async_trait]
+impl<T> RpcHandler for &T
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
+    }
+}
+
+#[async_trait]
+impl<T> RpcHandler for &mut T
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
+    }
+}
+
+#[async_trait]
+impl<T> RpcHandler for Box<T>
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
+    }
+}
+
+#[async_trait]
+impl<T> RpcHandler for Arc<T>
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
     }
 }
 

@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
+#[derive(Debug, Clone)]
 pub struct Request {
     pub header: Header,
     pub body: Body,
@@ -42,7 +43,7 @@ impl Request {
     }
 }
 
-#[derive(Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
+#[derive(Debug, Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
 pub struct Header {
     pub service_id: u32,

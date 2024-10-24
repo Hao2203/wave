@@ -3,6 +3,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Body {
     data: Bytes,
@@ -100,7 +101,7 @@ impl Decoder for BodyCodec {
         }
         let length = src.get_u64_le();
 
-        if src.len() < length as usize + Body::LENTH_SIZE {
+        if src.len() < length as usize {
             return Ok(None);
         }
         let data = src.split_to(length as usize);

@@ -108,12 +108,19 @@ impl<T> Client<T> {
         T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin,
     {
         let req = Request::new::<S>(req, self.service_version)?;
+
+        println!("start call remote service");
+
         self.io.send(req).await?;
+        self.io.flush().await?;
         let res = self
             .io
             .next()
             .await
             .ok_or_else(|| ClientError::ReceiveResponseFailed)??;
+
+        println!("finish call remote service");
+
         if !res.is_success() {
             Err(ClientError::ErrorWithCode(res.code()))?;
         }
