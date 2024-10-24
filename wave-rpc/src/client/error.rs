@@ -1,3 +1,5 @@
+use deadpool::managed::{BuildError, PoolError};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error(transparent)]
@@ -11,6 +13,21 @@ pub enum ClientError {
 
     #[error("error code: {0}")]
     ErrorWithCode(u16),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+
+    #[error(transparent)]
+    PoolBuildError(#[from] BuildError),
 }
 
 pub type Result<T, E = ClientError> = std::result::Result<T, E>;
+
+impl From<PoolError<Self>> for ClientError {
+    fn from(e: PoolError<Self>) -> Self {
+        match e {
+            PoolError::Backend(e) => e,
+            _ => ClientError::Other(e.into()),
+        }
+    }
+}

@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use crate::{
     body::BodyCodec, error::Error, request::RequestEncoder, response::ResponseDecoder,
     service::Version, Request, Response, Service,
@@ -10,13 +12,6 @@ use tokio_util::codec::Framed;
 
 pub mod error;
 pub mod pool;
-
-pub trait Call<S: Service> {
-    fn call(
-        &mut self,
-        req: S::Request,
-    ) -> impl std::future::Future<Output = Result<S::Response>> + Send;
-}
 
 /// # Example
 /// ```no_run
@@ -50,19 +45,13 @@ pub trait Call<S: Service> {
 /// }
 ///
 /// ```
-pub struct RpcBuilder {
+pub struct ClientBuilder<T> {
     max_body_size: usize,
     version: Version,
+    manager: T,
 }
 
-impl RpcBuilder {
-    pub fn new(max_body_size: usize) -> Self {
-        Self {
-            max_body_size,
-            version: Default::default(),
-        }
-    }
-
+impl<T> ClientBuilder<T> {
     pub fn version(mut self, version: impl Into<Version>) -> Self {
         self.version = version.into();
         self
@@ -72,12 +61,13 @@ impl RpcBuilder {
         self.max_body_size = max_body_size;
         self
     }
+}
 
+impl ClientBuilder<()> {
     pub async fn build_client(
         &self,
         io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin,
-    ) -> Result<Client<impl Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin>>
-    {
+    ) -> Result<impl Call> {
         let body_codec = BodyCodec::new(self.max_body_size);
         let io = to_stream_and_sink(io, body_codec);
 
@@ -88,6 +78,16 @@ impl RpcBuilder {
 pub struct Client<T> {
     io: T,
     service_version: Version,
+}
+
+impl Client<()> {
+    pub fn builder() -> ClientBuilder<()> {
+        ClientBuilder {
+            max_body_size: 10usize.pow(4),
+            version: Default::default(),
+            manager: (),
+        }
+    }
 }
 
 impl<T> Client<T> {
@@ -114,7 +114,7 @@ impl<T> Client<T> {
             .io
             .next()
             .await
-            .ok_or_else(|| ClientError::ReceiveResponseFailed)??;
+            .ok_or(ClientError::ReceiveResponseFailed)??;
 
         println!("finish call remote service");
 
@@ -134,4 +134,36 @@ fn to_stream_and_sink(
     let request_encoder = RequestEncoder::new(response_decoder);
 
     Framed::new(io, request_encoder).map_err(From::from)
+}
+
+pub trait Call {
+    fn call<S>(&mut self, req: S::Request) -> impl Future<Output = Result<S::Response>> + Send
+    where
+        S: Service,
+        <S as Service>::Request: Serialize + Send,
+        <S as Service>::Response: for<'a> Deserialize<'a> + Send;
+}
+
+impl<T> Call for Client<T>
+where
+    T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin + Send,
+{
+    async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
+    where
+        S: Service,
+        <S as Service>::Request: Serialize + Send,
+        <S as Service>::Response: for<'a> Deserialize<'a> + Send,
+    {
+        self.call::<S>(req).await
+    }
+}
+
+pub trait Transport:
+    Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin
+{
+}
+
+impl<T> Transport for T where
+    T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin
+{
 }

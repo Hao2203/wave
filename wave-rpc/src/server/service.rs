@@ -39,7 +39,7 @@ pub struct RpcService<'a, S> {
     version: Version,
 }
 
-impl<'a> RpcService<'a, ()> {
+impl RpcService<'_, ()> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
