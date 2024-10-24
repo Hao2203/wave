@@ -1,11 +1,6 @@
-#![allow(unused)]
 use crate::{
-    body::BodyCodec,
-    error::Error,
-    request::RequestEncoder,
-    response::{ResponseDecoder, ResponseEncoder},
-    service::Version,
-    Request, Response, Service,
+    body::BodyCodec, error::Error, request::RequestEncoder, response::ResponseDecoder,
+    service::Version, Request, Response, Service,
 };
 use error::{ClientError, Result};
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
@@ -23,6 +18,7 @@ pub trait Call<S: Service> {
     ) -> impl std::future::Future<Output = Result<S::Response>> + Send;
 }
 
+/// # Example
 /// ```no_run
 /// use wave_rpc::client::RpcBuilder;
 /// use wave_rpc::service::Service;
@@ -83,14 +79,9 @@ impl RpcBuilder {
     ) -> Result<Client<impl Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin>>
     {
         let body_codec = BodyCodec::new(self.max_body_size);
-        let response_decoder = ResponseDecoder::new(body_codec);
-        let request_encoder = RequestEncoder::new(response_decoder);
-        let framed = Framed::new(io, request_encoder).map_err(From::from);
+        let io = to_stream_and_sink(io, body_codec);
 
-        Ok(Client {
-            io: framed,
-            service_version: self.version,
-        })
+        Ok(Client::new(io, self.version))
     }
 }
 
@@ -100,6 +91,12 @@ pub struct Client<T> {
 }
 
 impl<T> Client<T> {
+    fn new(io: T, service_version: Version) -> Self {
+        Self {
+            io,
+            service_version,
+        }
+    }
     pub async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
     where
         S: Service,
@@ -127,4 +124,14 @@ impl<T> Client<T> {
         let res = res.into_body().bincode_decode()?;
         Ok(res)
     }
+}
+
+fn to_stream_and_sink(
+    io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin,
+    body_codec: BodyCodec,
+) -> impl Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin {
+    let response_decoder = ResponseDecoder::new(body_codec);
+    let request_encoder = RequestEncoder::new(response_decoder);
+
+    Framed::new(io, request_encoder).map_err(From::from)
 }

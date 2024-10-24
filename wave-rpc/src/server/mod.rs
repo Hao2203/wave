@@ -19,6 +19,7 @@ pub trait RpcHandler {
     async fn call(&self, req: &mut Request) -> Result<Response>;
 }
 
+/// # Example
 /// ```no_run
 /// use wave_rpc::server::RpcService;
 /// use wave_rpc::service::Service;
@@ -77,7 +78,7 @@ impl RpcServer {
         let framed = Framed::new(io, response_codec);
         let (mut sink, mut stream) = framed.split();
 
-        if let Some(req) = stream.next().await {
+        while let Some(req) = stream.next().await {
             println!("start process request");
 
             let mut req = req?;
