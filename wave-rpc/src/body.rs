@@ -80,6 +80,14 @@ impl Encoder<Body> for BodyCodec {
     type Error = Error;
 
     fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.encode(&item, dst)
+    }
+}
+
+impl Encoder<&Body> for BodyCodec {
+    type Error = Error;
+
+    fn encode(&mut self, item: &Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if item.len() > self.max_size {
             return Err(Error::BodyTooLarge)?;
         }
@@ -87,6 +95,14 @@ impl Encoder<Body> for BodyCodec {
         dst.put_u64_le(item.len() as u64);
         dst.extend_from_slice(item.as_slice());
         Ok(())
+    }
+}
+
+impl Encoder<&mut Body> for BodyCodec {
+    type Error = Error;
+
+    fn encode(&mut self, item: &mut Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.encode(item as &Body, dst)
     }
 }
 

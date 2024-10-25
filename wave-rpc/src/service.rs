@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -32,7 +34,9 @@ impl Version {
     pub const fn new(version: u32) -> Self {
         Self(version)
     }
-    pub fn inner(&self) -> u32 {
+
+    #[inline]
+    pub const fn inner(&self) -> u32 {
         self.0
     }
 }
@@ -52,5 +56,11 @@ impl From<u32> for Version {
 impl From<Version> for u32 {
     fn from(version: Version) -> Self {
         version.0
+    }
+}
+
+impl Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

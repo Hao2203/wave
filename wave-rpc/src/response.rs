@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, Result},
+    error::{Code, Error, Result},
     Body,
 };
 use bytes::{Buf, BufMut, BytesMut};
@@ -29,6 +29,10 @@ impl Response {
 
     pub fn is_success(&self) -> bool {
         self.code == Self::SUCCESS_CODE
+    }
+
+    pub fn error_code(&self) -> Result<Code, Error> {
+        Code::try_from(self.code())
     }
 
     pub fn code(&self) -> u16 {
@@ -110,15 +114,48 @@ where
 
 impl<T> Encoder<Response> for ResponseEncoder<T>
 where
-    T: Encoder<Body, Error = Error>,
+    T: for<'a> Encoder<&'a Body, Error = Error>,
 {
     type Error = Error;
 
     fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.encode(&item, dst)
+    }
+}
+
+impl<T> Encoder<&Response> for ResponseEncoder<T>
+where
+    T: for<'a> Encoder<&'a Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: &Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let Response { body, code } = item;
         dst.reserve(Response::CODE_SIZE);
-        dst.put_u16(code);
+        dst.put_u16(*code);
         self.codec.encode(body, dst)?;
         Ok(())
+    }
+}
+
+impl<T> Encoder<Body> for ResponseEncoder<T>
+where
+    T: Encoder<Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.codec.encode(item, dst)
+    }
+}
+
+impl<T> Encoder<&Body> for ResponseEncoder<T>
+where
+    T: for<'a> Encoder<&'a Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: &Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.codec.encode(item, dst)
     }
 }

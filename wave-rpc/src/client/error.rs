@@ -1,5 +1,7 @@
 use deadpool::managed::{BuildError, PoolError};
 
+use crate::{error::Code, Request};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error(transparent)]
@@ -13,6 +15,9 @@ pub enum ClientError {
 
     #[error("error code: {0}")]
     ErrorWithCode(u16),
+
+    #[error("service not found, id = {id}, version = {version}")]
+    ServiceNotFound { id: u32, version: u32 },
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -28,6 +33,17 @@ impl From<PoolError<Self>> for ClientError {
         match e {
             PoolError::Backend(e) => e,
             _ => ClientError::Other(e.into()),
+        }
+    }
+}
+
+impl From<(Code, &Request)> for ClientError {
+    fn from((code, req): (Code, &Request)) -> Self {
+        match code {
+            Code::ServiceNotFound => ClientError::ServiceNotFound {
+                id: req.header.service_id,
+                version: req.header.service_version,
+            },
         }
     }
 }

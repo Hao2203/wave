@@ -7,6 +7,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
+use tracing::{instrument, trace, Level};
 
 pub mod error;
 pub mod pool;
@@ -64,7 +65,7 @@ impl<T> Builder<T> {
     }
 }
 
-impl Builder<()> {
+impl Builder {
     pub fn new() -> Self {
         Self {
             max_body_size: None,
@@ -83,7 +84,7 @@ impl Builder<()> {
     }
 }
 
-impl Default for Builder<()> {
+impl Default for Builder {
     fn default() -> Self {
         Self::new()
     }
@@ -95,10 +96,14 @@ pub struct Client<'a> {
 }
 
 impl<'a> Client<'a> {
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
     fn new<T>(io: T, service_version: Version) -> Self
     where
-        T: Stream<Item = Result<Response>>
-            + Sink<Request, Error = Error>
+        for<'b> T: Stream<Item = Result<Response>>
+            + Sink<&'b Request, Error = Error>
             + Unpin
             + Send
             + Sync
@@ -110,17 +115,22 @@ impl<'a> Client<'a> {
         }
     }
 
+    #[instrument(skip_all, level = Level::TRACE, name = "client_call", err(level = Level::WARN))]
     pub async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
     where
         S: Service,
         <S as Service>::Request: Serialize + Send,
-        <S as Service>::Response: for<'b> Deserialize<'b> + Send,
+        <S as Service>::Response: for<'c> Deserialize<'c> + Send,
     {
         let req = Request::new::<S>(req, self.service_version)?;
 
-        println!("start call remote service");
+        trace!(
+            service_id = S::ID,
+            service_version = self.service_version.inner(),
+            "start call remote service",
+        );
 
-        self.io.send(req).await?;
+        self.io.send(&req).await?;
         self.io.flush().await?;
         let res = self
             .io
@@ -128,12 +138,17 @@ impl<'a> Client<'a> {
             .await
             .ok_or(ClientError::ReceiveResponseFailed)??;
 
-        println!("finish call remote service");
-
         if !res.is_success() {
             Err(ClientError::ErrorWithCode(res.code()))?;
         }
         let res = res.into_body().bincode_decode()?;
+
+        trace!(
+            service_id = S::ID,
+            service_version = self.service_version.inner(),
+            "finish call remote service",
+        );
+
         Ok(res)
     }
 }
@@ -141,41 +156,19 @@ impl<'a> Client<'a> {
 fn to_stream_and_sink(
     io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin,
     body_codec: BodyCodec,
-) -> impl Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin {
+) -> impl Stream<Item = Result<Response>> + for<'a> Sink<&'a Request, Error = Error> + Unpin {
     let response_decoder = ResponseDecoder::new(body_codec);
     let request_encoder = RequestEncoder::new(response_decoder);
 
     Framed::new(io, request_encoder).map_err(From::from)
 }
 
-// pub trait Call {
-//     fn call<S>(&mut self, req: S::Request) -> impl Future<Output = Result<S::Response>> + Send
-//     where
-//         S: Service,
-//         <S as Service>::Request: Serialize + Send,
-//         <S as Service>::Response: for<'a> Deserialize<'a> + Send;
-// }
-
-// impl<T> Call for Client<T>
-// where
-//     T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin + Send,
-// {
-//     async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
-//     where
-//         S: Service,
-//         <S as Service>::Request: Serialize + Send,
-//         <S as Service>::Response: for<'a> Deserialize<'a> + Send,
-//     {
-//         self.call::<S>(req).await
-//     }
-// }
-
 pub trait Transport:
-    Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin
+    for<'a> Sink<&'a Request, Error = Error> + Stream<Item = Result<Response>> + Unpin
 {
 }
 
 impl<T> Transport for T where
-    T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin
+    for<'a> T: Sink<&'a Request, Error = Error> + Stream<Item = Result<Response>> + Unpin
 {
 }

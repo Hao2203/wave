@@ -34,6 +34,14 @@ impl Request {
         &self.header
     }
 
+    pub fn service_id(&self) -> u32 {
+        self.header.service_id
+    }
+
+    pub fn service_version(&self) -> Version {
+        Version::from(self.header.service_version)
+    }
+
     pub fn body(&self) -> &Body {
         &self.body
     }
@@ -134,17 +142,50 @@ impl<T> RequestEncoder<T> {
 
 impl<T> Encoder<Request> for RequestEncoder<T>
 where
-    T: Encoder<Body, Error = Error>,
+    T: for<'a> Encoder<&'a Body, Error = Error>,
 {
     type Error = Error;
 
     fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.encode(&item, dst)
+    }
+}
+
+impl<T> Encoder<&Request> for RequestEncoder<T>
+where
+    T: for<'a> Encoder<&'a Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: &Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let Request { header, body } = item;
         let header_bytes = header.as_bytes();
         dst.reserve(header_bytes.len() + body.len());
         dst.extend_from_slice(header_bytes);
         self.codec.encode(body, dst)?;
         Ok(())
+    }
+}
+
+impl<T> Encoder<Body> for RequestEncoder<T>
+where
+    T: for<'a> Encoder<&'a Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.codec.encode(&item, dst)
+    }
+}
+
+impl<T> Encoder<&Body> for RequestEncoder<T>
+where
+    T: for<'a> Encoder<&'a Body, Error = Error>,
+{
+    type Error = Error;
+
+    fn encode(&mut self, item: &Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.codec.encode(item, dst)
     }
 }
 

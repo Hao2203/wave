@@ -1,5 +1,5 @@
-use super::{code::ErrorCode, Result, RpcHandler};
-use crate::{service::Version, Body, Request, Response, Service};
+use super::{Result, RpcHandler};
+use crate::{error::Code, service::Version, Body, Request, Response, Service};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, future::Future, sync::Arc};
@@ -140,7 +140,7 @@ where
             return handler.call(req).await;
         }
         Ok(Response::new(
-            ErrorCode::ServiceNotFound as u16,
+            Code::ServiceNotFound as u16,
             Body::new_empty(),
         ))
     }

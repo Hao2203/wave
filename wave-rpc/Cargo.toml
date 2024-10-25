@@ -30,6 +30,8 @@ zerocopy = { version = "0.8", features = ["derive"] }
 
 deadpool = { version = "0.12", features = ["rt_tokio_1"] }
 
+tracing = { version = "0.1" }
+
 [features]
 default = ["bincode"]
 rmp = ["rmp-serde"]

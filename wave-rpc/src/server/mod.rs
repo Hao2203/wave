@@ -9,9 +9,8 @@ use futures::{SinkExt, StreamExt};
 pub use service::RpcService;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
+use tracing::{instrument, trace, Level};
 
-// pub mod error;
-pub mod code;
 pub mod service;
 
 #[async_trait]
@@ -67,6 +66,8 @@ impl RpcServer {
     pub fn new(max_body_size: usize) -> Self {
         Self { max_body_size }
     }
+
+    #[instrument(skip_all, level = Level::TRACE, err(level = Level::WARN))]
     pub async fn serve(
         &self,
         service: impl RpcHandler,
@@ -79,13 +80,22 @@ impl RpcServer {
         let (mut sink, mut stream) = framed.split();
 
         while let Some(req) = stream.next().await {
-            println!("start process request");
-
             let mut req = req?;
+
+            trace!(
+                service_id = req.service_id(),
+                service_version = %req.service_version(),
+                "start process request"
+            );
+
             let res = service.call(&mut req).await?;
             sink.send(res).await?;
 
-            println!("finish process request");
+            trace!(
+                service_id = req.service_id(),
+                service_version = %req.service_version(),
+                "finish process request"
+            );
         }
 
         Ok(())
