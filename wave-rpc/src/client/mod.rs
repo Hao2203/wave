@@ -14,8 +14,9 @@ pub mod error;
 pub mod pool;
 
 /// # Example
+///
 /// ```no_run
-/// use wave_rpc::client::RpcBuilder;
+/// use wave_rpc::client::Builder;
 /// use wave_rpc::service::Service;
 /// use wave_rpc::server::RpcService;
 /// use tokio::net::{TcpStream, TcpListener};
@@ -38,56 +39,60 @@ pub mod pool;
 /// #[tokio::main]
 /// async fn main() {
 ///     let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
-///     let builder = RpcBuilder::new(1024 * 1024 * 10);
-///     let mut client = builder.build_client(conn).await.unwrap();
+///     let mut client = Builder::new().build_client(conn).await.unwrap();
 ///     let req = AddReq(1, 2);
 ///     let res = client.call::<MyService>(req).await.unwrap();
 /// }
 ///
 /// ```
-pub struct ClientBuilder<T> {
-    max_body_size: usize,
+pub struct Builder<T = ()> {
+    max_body_size: Option<usize>,
     version: Version,
     manager: T,
 }
 
-impl<T> ClientBuilder<T> {
+pub const DEFAULT_MAX_BODY_SIZE: usize = 1024 * 1024 * 10;
+
+impl<T> Builder<T> {
     pub fn version(mut self, version: impl Into<Version>) -> Self {
         self.version = version.into();
         self
     }
 
     pub fn max_body_size(mut self, max_body_size: usize) -> Self {
-        self.max_body_size = max_body_size;
+        self.max_body_size = Some(max_body_size);
         self
     }
 }
 
-impl ClientBuilder<()> {
+impl Builder<()> {
+    pub fn new() -> Self {
+        Self {
+            max_body_size: None,
+            version: Version::default(),
+            manager: (),
+        }
+    }
     pub async fn build_client(
         &self,
         io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin,
-    ) -> Result<impl Call> {
-        let body_codec = BodyCodec::new(self.max_body_size);
+    ) -> Result<impl Call + Send + Sync> {
+        let body_codec = BodyCodec::new(self.max_body_size.unwrap_or(DEFAULT_MAX_BODY_SIZE));
         let io = to_stream_and_sink(io, body_codec);
 
         Ok(Client::new(io, self.version))
     }
 }
 
+impl Default for Builder<()> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Client<T> {
     io: T,
     service_version: Version,
-}
-
-impl Client<()> {
-    pub fn builder() -> ClientBuilder<()> {
-        ClientBuilder {
-            max_body_size: 10usize.pow(4),
-            version: Default::default(),
-            manager: (),
-        }
-    }
 }
 
 impl<T> Client<T> {
@@ -97,6 +102,7 @@ impl<T> Client<T> {
             service_version,
         }
     }
+
     pub async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
     where
         S: Service,

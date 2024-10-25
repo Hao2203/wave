@@ -1,7 +1,7 @@
 #![allow(unused)]
 use super::error::Result;
-use super::Call;
 use super::{error::ClientError, Client};
+use super::{Builder, Call};
 use crate::error::Error;
 use crate::{body::BodyCodec, client::to_stream_and_sink, service::Version, Request, Response};
 use deadpool::managed::{Manager, Object, PoolError};
@@ -14,29 +14,14 @@ pub trait MakeConnection {
     fn make_connection(&self) -> impl Future<Output = Self::Connection> + Send;
 }
 
-pub struct PoolBuilder {
-    max_body_size: usize,
-    version: Version,
-}
-
-impl PoolBuilder {
-    pub fn version(mut self, version: impl Into<Version>) -> Self {
-        self.version = version.into();
-        self
-    }
-
-    pub fn max_body_size(mut self, max_body_size: usize) -> Self {
-        self.max_body_size = max_body_size;
-        self
-    }
-
-    pub fn build<'a, T>(&self, make_connection: &'a T) -> Result<Pool<'a, T>>
-    where
-        T: MakeConnection + Sync,
-    {
+impl<T> Builder<T>
+where
+    T: MakeConnection + Sync,
+{
+    pub fn build(&self) -> Result<Pool<'_, T>> {
         let inner = InnerPool {
-            max_body_size: self.max_body_size,
-            manger: make_connection,
+            max_body_size: self.max_body_size.unwrap_or(super::DEFAULT_MAX_BODY_SIZE),
+            manger: &self.manager,
             service_version: self.version,
         };
         let pool = deadpool::managed::Pool::builder(inner).build()?;
@@ -50,10 +35,11 @@ pub struct Pool<'a, T: MakeConnection + Sync> {
 }
 
 impl<'a, T: MakeConnection + Sync> Pool<'a, T> {
-    pub fn builder() -> PoolBuilder {
-        PoolBuilder {
-            max_body_size: 10usize.pow(4),
-            version: Default::default(),
+    pub fn builder(manager: T) -> Builder<T> {
+        Builder {
+            manager,
+            version: Version::default(),
+            max_body_size: Default::default(),
         }
     }
 
