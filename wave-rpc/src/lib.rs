@@ -1,8 +1,10 @@
 //! # Examples
 //!
 //! ```rust
-//! use wave_rpc::server::RpcService;
+//! use wave_rpc::client::Builder;
+//! use wave_rpc::server::{RpcServer, RpcService};
 //! use wave_rpc::service::Service;
+//! use std::time::Duration;
 //!
 //! struct MyService;
 //!
@@ -27,31 +29,33 @@
 //!     }
 //! }
 //!
-//! #[tokio::main]
-//! async fn main() {
-//!     use tokio::net::{TcpListener, TcpStream};
-//!     use tokio::task;
+//! use tokio::net::{TcpListener, TcpStream};
 //!
-//!     dbg!("starting");
-//!     let task1 = task::spawn(async move {
-//!         let service = RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
-//!         let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
-//!         dbg!("listening");
-//!         let conn = listener.accept().await.unwrap().0;
-//!         dbg!("connected");
-//!         let server = wave_rpc::server::RpcServer::new(1024);
-//!         server.serve(service, conn).await.unwrap();
-//!     });
-//!     let task2 = task::spawn(async move {
+//! let rt = tokio::runtime::Builder::new_current_thread()
+//!     .enable_all()
+//!     .build()
+//!     .unwrap();
+//! rt.block_on(async move {
+//!     let task1 = tokio::spawn(async move {
+//!         tokio::time::sleep(Duration::from_secs(1)).await;
 //!         let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
-//!         dbg!("client connected");
-//!         let mut client = wave_rpc::client::RpcBuilder::new(1024).build_client(conn).await.unwrap();
+//!         let builder = Builder::default();
+//!         let mut client = builder.build_client(conn).await.unwrap();
 //!         let res = client.call::<MyService>(AddReq(1, 2)).await.unwrap();
 //!         assert_eq!(res.0, 3);
 //!     });
+
+//!     let task2 = tokio::spawn(async move {
+//!         let service =
+//!             RpcService::with_state(&MyServiceState).register::<MyService>(MyServiceState::add);
+//!         let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+//!         let conn = listener.accept().await.unwrap().0;
+//!         let server = RpcServer::new(1024);
+//!         server.serve(service, conn).await.unwrap();
+//!     });
 //!     task1.await.unwrap();
 //!     task2.await.unwrap();
-//! }
+//! });
 //!
 //! ```
 //!

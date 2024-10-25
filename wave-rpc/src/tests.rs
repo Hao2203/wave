@@ -1,6 +1,4 @@
-#![allow(unused)]
-
-use crate::client::{Builder, Call, Client};
+use crate::client::Builder;
 use crate::server::{RpcServer, RpcService};
 use crate::service::Service;
 use std::time::Duration;
@@ -40,7 +38,8 @@ fn test() {
         let task1 = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(1)).await;
             let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
-            let mut client = Builder::default().build_client(conn).await.unwrap();
+            let builder = Builder::default();
+            let mut client = builder.build_client(conn).await.unwrap();
             let res = client.call::<MyService>(AddReq(1, 2)).await.unwrap();
             assert_eq!(res.0, 3);
         });

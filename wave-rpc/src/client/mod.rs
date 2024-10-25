@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use crate::{
     body::BodyCodec, error::Error, request::RequestEncoder, response::ResponseDecoder,
     service::Version, Request, Response, Service,
@@ -39,7 +37,8 @@ pub mod pool;
 /// #[tokio::main]
 /// async fn main() {
 ///     let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
-///     let mut client = Builder::new().build_client(conn).await.unwrap();
+///     let builder = Builder::new();
+///     let mut client = builder.build_client(conn).await.unwrap();
 ///     let req = AddReq(1, 2);
 ///     let res = client.call::<MyService>(req).await.unwrap();
 /// }
@@ -73,10 +72,10 @@ impl Builder<()> {
             manager: (),
         }
     }
-    pub async fn build_client(
-        &self,
-        io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin,
-    ) -> Result<impl Call + Send + Sync> {
+    pub async fn build_client<'a>(
+        &'a self,
+        io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'a,
+    ) -> Result<Client<'a>> {
         let body_codec = BodyCodec::new(self.max_body_size.unwrap_or(DEFAULT_MAX_BODY_SIZE));
         let io = to_stream_and_sink(io, body_codec);
 
@@ -90,15 +89,23 @@ impl Default for Builder<()> {
     }
 }
 
-pub struct Client<T> {
-    io: T,
+pub struct Client<'a> {
+    io: Box<dyn Transport + Send + Sync + 'a>,
     service_version: Version,
 }
 
-impl<T> Client<T> {
-    fn new(io: T, service_version: Version) -> Self {
+impl<'a> Client<'a> {
+    fn new<T>(io: T, service_version: Version) -> Self
+    where
+        T: Stream<Item = Result<Response>>
+            + Sink<Request, Error = Error>
+            + Unpin
+            + Send
+            + Sync
+            + 'a,
+    {
         Self {
-            io,
+            io: Box::new(io),
             service_version,
         }
     }
@@ -107,8 +114,7 @@ impl<T> Client<T> {
     where
         S: Service,
         <S as Service>::Request: Serialize + Send,
-        <S as Service>::Response: for<'a> Deserialize<'a> + Send,
-        T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin,
+        <S as Service>::Response: for<'b> Deserialize<'b> + Send,
     {
         let req = Request::new::<S>(req, self.service_version)?;
 
@@ -142,27 +148,27 @@ fn to_stream_and_sink(
     Framed::new(io, request_encoder).map_err(From::from)
 }
 
-pub trait Call {
-    fn call<S>(&mut self, req: S::Request) -> impl Future<Output = Result<S::Response>> + Send
-    where
-        S: Service,
-        <S as Service>::Request: Serialize + Send,
-        <S as Service>::Response: for<'a> Deserialize<'a> + Send;
-}
+// pub trait Call {
+//     fn call<S>(&mut self, req: S::Request) -> impl Future<Output = Result<S::Response>> + Send
+//     where
+//         S: Service,
+//         <S as Service>::Request: Serialize + Send,
+//         <S as Service>::Response: for<'a> Deserialize<'a> + Send;
+// }
 
-impl<T> Call for Client<T>
-where
-    T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin + Send,
-{
-    async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
-    where
-        S: Service,
-        <S as Service>::Request: Serialize + Send,
-        <S as Service>::Response: for<'a> Deserialize<'a> + Send,
-    {
-        self.call::<S>(req).await
-    }
-}
+// impl<T> Call for Client<T>
+// where
+//     T: Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin + Send,
+// {
+//     async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
+//     where
+//         S: Service,
+//         <S as Service>::Request: Serialize + Send,
+//         <S as Service>::Response: for<'a> Deserialize<'a> + Send,
+//     {
+//         self.call::<S>(req).await
+//     }
+// }
 
 pub trait Transport:
     Stream<Item = Result<Response>> + Sink<Request, Error = Error> + Unpin

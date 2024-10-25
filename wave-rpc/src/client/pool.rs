@@ -1,12 +1,13 @@
 #![allow(unused)]
 use super::error::Result;
+use super::Builder;
 use super::{error::ClientError, Client};
-use super::{Builder, Call};
 use crate::error::Error;
 use crate::{body::BodyCodec, client::to_stream_and_sink, service::Version, Request, Response};
 use deadpool::managed::{Manager, Object, PoolError};
 use futures::{Sink, Stream};
 use std::future::Future;
+use std::ops::DerefMut;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait MakeConnection {
@@ -43,33 +44,9 @@ impl<'a, T: MakeConnection + Sync> Pool<'a, T> {
         }
     }
 
-    pub async fn client(&self) -> Result<impl Call + Send + Sync + 'a> {
-        let pool = self.inner.get().await;
-        match pool {
-            Ok(mut pool) => Ok(pool),
-            Err(e) => {
-                if let PoolError::Backend(e) = e {
-                    Err(e)
-                } else {
-                    Err(anyhow::anyhow!("{:?}", e))?
-                }
-            }
-        }
-    }
-}
-
-impl<T> Call for Object<T>
-where
-    T: Manager,
-    T::Type: Call,
-{
-    async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
-    where
-        S: crate::Service,
-        <S as crate::Service>::Request: serde::Serialize + Send,
-        <S as crate::Service>::Response: for<'a> serde::Deserialize<'a> + Send,
-    {
-        self.as_mut().call::<S>(req).await
+    pub async fn client(&self) -> Result<impl DerefMut<Target = Client<'a>>> {
+        let client = self.inner.get().await?;
+        Ok(client)
     }
 }
 
@@ -83,7 +60,7 @@ impl<'a, T> Manager for InnerPool<'a, T>
 where
     T: MakeConnection + Sync,
 {
-    type Type = PoolClient<'a>;
+    type Type = Client<'a>;
     type Error = ClientError;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
@@ -102,4 +79,3 @@ where
         Ok(())
     }
 }
-type PoolClient<'a> = Client<Box<dyn super::Transport + Send + Sync + 'a>>;
