@@ -1,11 +1,8 @@
-#![allow(unused)]
 use super::error::Result;
 use super::Builder;
 use super::{error::ClientError, Client};
-use crate::error::Error;
-use crate::{body::BodyCodec, client::to_stream_and_sink, service::Version, Request, Response};
-use deadpool::managed::{Manager, Object, PoolError};
-use futures::{Sink, Stream};
+use crate::{body::BodyCodec, client::to_stream_and_sink, service::Version};
+use deadpool::managed::Manager;
 use std::future::Future;
 use std::ops::DerefMut;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -71,6 +68,7 @@ where
         Ok(Client::new(Box::new(io), self.service_version))
     }
 
+    #[allow(unused_variables)]
     async fn recycle(
         &self,
         obj: &mut Self::Type,

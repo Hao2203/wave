@@ -1,6 +1,5 @@
-use deadpool::managed::{BuildError, PoolError};
-
 use crate::{error::Code, Request};
+use deadpool::managed::{BuildError, PoolError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
