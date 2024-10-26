@@ -138,7 +138,7 @@ impl<'a> Client<'a> {
             .await
             .ok_or(ClientError::ReceiveResponseFailed)??;
 
-        if let Ok(code) = res.error_code() {
+        if let Some(code) = res.error_code() {
             return Err(ClientError::from((code, &req)));
         }
 

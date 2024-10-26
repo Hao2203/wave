@@ -1,4 +1,4 @@
-use crate::{error::Code, Request};
+use crate::{error::ErrorCode, Request};
 use anyhow::anyhow;
 use deadpool::managed::{BuildError, PoolError};
 
@@ -37,10 +37,10 @@ impl From<PoolError<Self>> for ClientError {
     }
 }
 
-impl From<(Code, &Request)> for ClientError {
-    fn from((code, req): (Code, &Request)) -> Self {
+impl From<(ErrorCode, &Request)> for ClientError {
+    fn from((code, req): (ErrorCode, &Request)) -> Self {
         match code {
-            Code::ServiceNotFound => ClientError::ServiceNotFound {
+            ErrorCode::ServiceNotFound => ClientError::ServiceNotFound {
                 id: req.header.service_id,
                 version: req.header.service_version,
             },

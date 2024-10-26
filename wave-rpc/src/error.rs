@@ -20,7 +20,7 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub enum Code {
+pub enum ErrorCode {
     ServiceNotFound,
     CodecError,
     IoError,
@@ -28,44 +28,38 @@ pub enum Code {
     Other(u16),
 }
 
-impl From<Code> for u16 {
-    fn from(val: Code) -> Self {
+impl From<ErrorCode> for u16 {
+    fn from(val: ErrorCode) -> Self {
         match val {
-            Code::ServiceNotFound => 1,
-            Code::CodecError => 2,
-            Code::IoError => 3,
-            Code::BodyTooLarge => 4,
-            Code::Other(code) => code,
+            ErrorCode::ServiceNotFound => 1,
+            ErrorCode::CodecError => 2,
+            ErrorCode::IoError => 3,
+            ErrorCode::BodyTooLarge => 4,
+            ErrorCode::Other(code) => code,
         }
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("{:?}", self)]
-pub struct ParseCodeError(pub u16);
-
-impl TryFrom<u16> for Code {
-    type Error = ParseCodeError;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
+impl From<u16> for ErrorCode {
+    fn from(value: u16) -> Self {
         match value {
-            1 => Ok(Self::ServiceNotFound),
-            2 => Ok(Self::CodecError),
-            3 => Ok(Self::IoError),
-            4 => Ok(Self::BodyTooLarge),
-            _ => Err(ParseCodeError(value)),
+            1 => Self::ServiceNotFound,
+            2 => Self::CodecError,
+            3 => Self::IoError,
+            4 => Self::BodyTooLarge,
+            _ => Self::Other(value),
         }
     }
 }
 
-impl TryFrom<Error> for Code {
+impl TryFrom<Error> for ErrorCode {
     type Error = Error;
-    fn try_from(val: Error) -> Result<Code, Self::Error> {
+    fn try_from(val: Error) -> Result<ErrorCode, Self::Error> {
         match val {
-            Error::ServiceNotFound => Ok(Code::ServiceNotFound),
-            Error::Bincode(_) | Error::ParseHeaderFromBytesFailed => Ok(Code::CodecError),
+            Error::ServiceNotFound => Ok(ErrorCode::ServiceNotFound),
+            Error::Bincode(_) | Error::ParseHeaderFromBytesFailed => Ok(ErrorCode::CodecError),
             Error::Io(_) => Err(val),
-            Error::BodyTooLarge => Ok(Code::BodyTooLarge),
+            Error::BodyTooLarge => Ok(ErrorCode::BodyTooLarge),
         }
     }
 }

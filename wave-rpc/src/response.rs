@@ -1,5 +1,5 @@
 use crate::{
-    error::{Code, Error, ParseCodeError, Result},
+    error::{Error, ErrorCode, Result},
     Body,
 };
 use bytes::{Buf, BufMut, BytesMut};
@@ -32,8 +32,12 @@ impl Response {
         self.code == Self::SUCCESS_CODE
     }
 
-    pub fn error_code(&self) -> Result<Code, ParseCodeError> {
-        Code::try_from(self.code())
+    pub fn error_code(&self) -> Option<ErrorCode> {
+        if self.is_success() {
+            None
+        } else {
+            Some(ErrorCode::from(self.code))
+        }
     }
 
     pub fn code(&self) -> u16 {
@@ -68,7 +72,7 @@ impl TryFrom<Result<Response>> for Response {
         Ok(match result {
             Ok(response) => response,
             Err(err) => {
-                let code = Code::try_from(err)?;
+                let code = ErrorCode::try_from(err)?;
                 Self::new(code.into(), Body::new_empty())
             }
         })
