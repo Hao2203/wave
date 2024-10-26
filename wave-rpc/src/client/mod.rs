@@ -138,9 +138,10 @@ impl<'a> Client<'a> {
             .await
             .ok_or(ClientError::ReceiveResponseFailed)??;
 
-        if !res.is_success() {
-            Err(ClientError::ErrorWithCode(res.code()))?;
+        if let Ok(code) = res.error_code() {
+            return Err(ClientError::from((code, &req)));
         }
+
         let res = res.into_body().bincode_decode()?;
 
         trace!(

@@ -1,5 +1,5 @@
 use super::{Result, RpcHandler};
-use crate::{error::Code, service::Version, Body, Request, Response, Service};
+use crate::{error::Error, service::Version, Body, Request, Response, Service};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, future::Future, sync::Arc};
@@ -139,10 +139,7 @@ where
         if let Some(handler) = self.map.get(&key) {
             return handler.call(req).await;
         }
-        Ok(Response::new(
-            Code::ServiceNotFound as u16,
-            Body::new_empty(),
-        ))
+        Err(Error::ServiceNotFound)
     }
 }
 

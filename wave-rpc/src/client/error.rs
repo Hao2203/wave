@@ -1,4 +1,5 @@
 use crate::{error::Code, Request};
+use anyhow::anyhow;
 use deadpool::managed::{BuildError, PoolError};
 
 #[derive(Debug, thiserror::Error)]
@@ -12,9 +13,6 @@ pub enum ClientError {
     #[error("receive response failed")]
     ReceiveResponseFailed,
 
-    #[error("error code: {0}")]
-    ErrorWithCode(u16),
-
     #[error("service not found, id = {id}, version = {version}")]
     ServiceNotFound { id: u32, version: u32 },
 
@@ -23,6 +21,9 @@ pub enum ClientError {
 
     #[error(transparent)]
     PoolBuildError(#[from] BuildError),
+
+    #[error("parse error code failed")]
+    ParseErrorCodeFailed,
 }
 
 pub type Result<T, E = ClientError> = std::result::Result<T, E>;
@@ -43,6 +44,7 @@ impl From<(Code, &Request)> for ClientError {
                 id: req.header.service_id,
                 version: req.header.service_version,
             },
+            _ => ClientError::Other(anyhow!("unknown error code: {:?}", code)),
         }
     }
 }

@@ -3,8 +3,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
-#[derive(Debug, Clone)]
-#[non_exhaustive]
+#[derive(Debug, Clone, Default)]
 pub struct Body {
     data: Bytes,
 }
@@ -47,20 +46,6 @@ impl Body {
     pub fn bincode_decode<'a, T: Deserialize<'a>>(&'a self) -> Result<T> {
         let bytes = self.as_slice();
         let value = bincode::deserialize(bytes)?;
-        Ok(value)
-    }
-}
-
-#[cfg(feature = "rmp")]
-impl Body {
-    pub fn rmp_encode(data: impl Serialize) -> Result<Self> {
-        let bytes = rmp_serde::to_vec(&data)?;
-        Ok(Self::new(bytes.into()))
-    }
-
-    pub fn rmp_decode<'a, T: Deserialize<'a>>(&'a self) -> Result<T> {
-        let bytes = self.as_slice();
-        let value = rmp_serde::from_slice(bytes)?;
         Ok(value)
     }
 }

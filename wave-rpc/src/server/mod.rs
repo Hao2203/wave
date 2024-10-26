@@ -88,8 +88,11 @@ impl RpcServer {
                 "start process request"
             );
 
-            let res = service.call(&mut req).await?;
-            sink.send(res).await?;
+            let res = service.call(&mut req).await.inspect_err(|e| {
+                trace!(error = %e, "process request error");
+            });
+
+            sink.send(Response::try_from(res)?).await?;
 
             trace!(
                 service_id = req.service_id(),

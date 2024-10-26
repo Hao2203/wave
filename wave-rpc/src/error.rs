@@ -6,14 +6,6 @@ pub enum Error {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
 
-    #[cfg(feature = "rmp")]
-    #[error(transparent)]
-    RmpEncode(#[from] rmp_serde::encode::Error),
-
-    #[cfg(feature = "rmp")]
-    #[error(transparent)]
-    RmpDeocde(#[from] rmp_serde::decode::Error),
-
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -23,29 +15,57 @@ pub enum Error {
     #[error("parse header from bytes failed")]
     ParseHeaderFromBytesFailed,
 
-    #[error("parse error code failed")]
-    ParseErrorCodeFailed,
+    #[error("service not found")]
+    ServiceNotFound,
 }
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum Code {
-    ServiceNotFound = 1,
-}
-
-impl TryFrom<u16> for Code {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Self::ServiceNotFound),
-            _ => Err(Error::ParseErrorCodeFailed),
-        }
-    }
+    ServiceNotFound,
+    CodecError,
+    IoError,
+    BodyTooLarge,
+    Other(u16),
 }
 
 impl From<Code> for u16 {
     fn from(val: Code) -> Self {
-        val as u16
+        match val {
+            Code::ServiceNotFound => 1,
+            Code::CodecError => 2,
+            Code::IoError => 3,
+            Code::BodyTooLarge => 4,
+            Code::Other(code) => code,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{:?}", self)]
+pub struct ParseCodeError(pub u16);
+
+impl TryFrom<u16> for Code {
+    type Error = ParseCodeError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::ServiceNotFound),
+            2 => Ok(Self::CodecError),
+            3 => Ok(Self::IoError),
+            4 => Ok(Self::BodyTooLarge),
+            _ => Err(ParseCodeError(value)),
+        }
+    }
+}
+
+impl TryFrom<Error> for Code {
+    type Error = Error;
+    fn try_from(val: Error) -> Result<Code, Self::Error> {
+        match val {
+            Error::ServiceNotFound => Ok(Code::ServiceNotFound),
+            Error::Bincode(_) | Error::ParseHeaderFromBytesFailed => Ok(Code::CodecError),
+            Error::Io(_) => Err(val),
+            Error::BodyTooLarge => Ok(Code::BodyTooLarge),
+        }
     }
 }

@@ -1,8 +1,9 @@
 use crate::{
-    error::{Code, Error, Result},
+    error::{Code, Error, ParseCodeError, Result},
     Body,
 };
 use bytes::{Buf, BufMut, BytesMut};
+use serde::Serialize;
 use tokio_util::codec::{Decoder, Encoder};
 
 #[derive(Debug, Clone)]
@@ -31,7 +32,7 @@ impl Response {
         self.code == Self::SUCCESS_CODE
     }
 
-    pub fn error_code(&self) -> Result<Code, Error> {
+    pub fn error_code(&self) -> Result<Code, ParseCodeError> {
         Code::try_from(self.code())
     }
 
@@ -45,6 +46,32 @@ impl Response {
 
     pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
+    }
+}
+
+impl<T> TryFrom<Result<T>> for Response
+where
+    T: Serialize,
+{
+    type Error = Error;
+    fn try_from(result: Result<T>) -> Result<Self, Self::Error> {
+        let res = result
+            .and_then(|value| Body::bincode_encode(&value))
+            .map(Response::success);
+        res.try_into()
+    }
+}
+
+impl TryFrom<Result<Response>> for Response {
+    type Error = Error;
+    fn try_from(result: Result<Response>) -> Result<Self, Self::Error> {
+        Ok(match result {
+            Ok(response) => response,
+            Err(err) => {
+                let code = Code::try_from(err)?;
+                Self::new(code.into(), Body::new_empty())
+            }
+        })
     }
 }
 
