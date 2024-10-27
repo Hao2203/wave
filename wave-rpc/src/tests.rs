@@ -1,6 +1,7 @@
 use crate::client::Builder;
 use crate::server::{RpcServer, RpcService};
 use crate::service::Service;
+use std::convert::Infallible;
 use std::time::Duration;
 
 struct MyService;
@@ -21,8 +22,8 @@ impl Service for MyService {
 struct MyServiceState;
 
 impl MyServiceState {
-    async fn add(&self, req: AddReq) -> AddRes {
-        AddRes(req.0 + req.1)
+    async fn add(&self, req: AddReq) -> Result<AddRes, Infallible> {
+        Ok(AddRes(req.0 + req.1))
     }
 }
 

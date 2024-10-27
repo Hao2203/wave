@@ -12,39 +12,6 @@ use tracing::{instrument, trace, Level};
 pub mod error;
 pub mod pool;
 
-/// # Example
-///
-/// ```no_run
-/// use wave_rpc::client::Builder;
-/// use wave_rpc::service::Service;
-/// use wave_rpc::server::RpcService;
-/// use tokio::net::{TcpStream, TcpListener};
-///
-/// struct MyService;
-///
-/// #[derive(serde::Serialize, serde::Deserialize)]
-/// struct AddReq(u32, u32);
-///
-/// #[derive(serde::Serialize, serde::Deserialize)]
-/// struct AddRes(u32);
-///
-/// impl Service for MyService {
-///     type Request = AddReq;
-///     type Response = AddRes;
-///
-///     const ID: u32 = 1;
-/// }
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let conn = TcpStream::connect("127.0.0.1:8080").await.unwrap();
-///     let builder = Builder::new();
-///     let mut client = builder.build_client(conn).await.unwrap();
-///     let req = AddReq(1, 2);
-///     let res = client.call::<MyService>(req).await.unwrap();
-/// }
-///
-/// ```
 pub struct Builder<T = ()> {
     max_body_size: Option<usize>,
     version: Version,

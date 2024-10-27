@@ -25,6 +25,9 @@ pub enum Error {
 
     #[error("parse error code failed")]
     ParseErrorCodeFailed,
+
+    #[error(transparent)]
+    HandleError(anyhow::Error),
 }
 
 #[derive(Debug)]
