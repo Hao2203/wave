@@ -50,7 +50,10 @@ impl<'a, State> RpcService<'a, State> {
         self
     }
 
-    pub fn register<S>(mut self, f: impl Handle<&'a State, S> + Send + Sync + 'a) -> Self
+    pub fn register<S>(
+        mut self,
+        f: impl Handle<&'a State, S::Request, Response = S::Response> + Send + Sync + 'a,
+    ) -> Self
     where
         State: Send + Sync + 'a,
         S: Service + Send + Sync + 'static,
@@ -64,7 +67,7 @@ impl<'a, State> RpcService<'a, State> {
             Box::new(FnHandler {
                 f,
                 state: self.state,
-                _service: std::marker::PhantomData::<fn() -> S>,
+                _service: std::marker::PhantomData,
             }),
         );
         self
@@ -121,20 +124,19 @@ where
     }
 }
 
-struct FnHandler<'a, State, F, S> {
+struct FnHandler<'a, State, F, Req, Resp> {
     f: F,
     state: &'a State,
-    _service: std::marker::PhantomData<fn() -> S>,
+    _service: std::marker::PhantomData<fn() -> (Req, Resp)>,
 }
 
 #[async_trait]
-impl<'a, State, F, S> RpcHandler for FnHandler<'a, State, F, S>
+impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<'a, State, F, Req, Resp>
 where
     State: Send + Sync + 'a,
-    F: Handle<&'a State, S> + Send + Sync,
-    S: Service + Send + Sync,
-    <S as Service>::Request: for<'b> Deserialize<'b> + Send,
-    <S as Service>::Response: Serialize + Send,
+    F: Handle<&'a State, Req, Response = Resp> + Send + Sync,
+    Req: for<'b> Deserialize<'b> + Send,
+    Resp: Serialize + Send,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let req = req.body().bincode_decode()?;
@@ -147,27 +149,28 @@ where
     }
 }
 
-pub trait Handle<State, S: Service> {
+pub trait Handle<State, Req> {
     type Error: core::error::Error + Send + Sync + 'static;
+    type Response;
     fn call(
         &self,
         state: State,
-        req: S::Request,
-    ) -> impl Future<Output = Result<S::Response, Self::Error>> + Send;
+        req: Req,
+    ) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send;
 }
 
-impl<F, Fut, E, S, State> Handle<State, S> for F
+impl<F, Fut, E, Req, Resp, State> Handle<State, Req> for F
 where
-    Fut: Future<Output = Result<S::Response, E>> + Send,
+    Fut: Future<Output = Result<Resp, E>> + Send,
     E: core::error::Error + Send + Sync + 'static,
-    F: Fn(State, S::Request) -> Fut + Send + Sync,
-    S: Service + Send + Sync,
-    S::Request: Send,
-    S::Response: Send,
+    F: Fn(State, Req) -> Fut + Send + Sync,
     State: Send + Sync,
+    Req: Send + Sync,
+    Resp: Send + Sync,
 {
     type Error = E;
-    async fn call(&self, state: State, req: S::Request) -> Result<S::Response, Self::Error> {
+    type Response = Resp;
+    async fn call(&self, state: State, req: Req) -> Result<Resp, Self::Error> {
         (self)(state, req).await
     }
 }

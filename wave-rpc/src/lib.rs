@@ -66,6 +66,7 @@
 pub mod body;
 pub mod client;
 pub mod error;
+pub mod message;
 pub mod request;
 pub mod response;
 pub mod server;
