@@ -14,7 +14,7 @@ pub trait Message: Sized {
 
     fn into_body(inner: Self::Inner) -> Result<Body, Self::Error>;
 
-    fn from_body(body: Body) -> Result<Self::Inner, Self::Error>;
+    fn from_body(body: &mut Body) -> Result<Self::Inner, Self::Error>;
 }
 
 #[derive(From)]
@@ -39,7 +39,7 @@ where
         Ok(Body::new(bincode::serialize(&inner)?.into()))
     }
 
-    fn from_body(body: Body) -> Result<Self::Inner, Self::Error> {
+    fn from_body(body: &mut Body) -> Result<Self::Inner, Self::Error> {
         bincode::deserialize(body.as_slice())
     }
 }
@@ -68,7 +68,7 @@ where
             .map_err(|inner| inner.into_inner())
     }
 
-    fn from_body(body: Body) -> Result<Self::Inner, Self::Error> {
+    fn from_body(body: &mut Body) -> Result<Self::Inner, Self::Error> {
         let bytes = body.as_slice();
 
         let tag = bytes[0];

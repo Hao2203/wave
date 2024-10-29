@@ -1,10 +1,9 @@
 use crate::{
-    body::BodyCodec, error::Error, request::RequestEncoder, response::ResponseDecoder,
-    service::Version, Request, Response, Service,
+    body::BodyCodec, error::Error, message::Message, request::RequestEncoder,
+    response::ResponseDecoder, service::Version, Request, Response, Service,
 };
 use error::{ClientError, Result};
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
-use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 use tracing::{instrument, trace, Level};
@@ -83,11 +82,14 @@ impl<'a> Client<'a> {
     }
 
     #[instrument(skip_all, level = Level::TRACE, name = "client_call", err(level = Level::WARN))]
-    pub async fn call<S>(&mut self, req: S::Request) -> Result<S::Response>
+    pub async fn call<S>(
+        &mut self,
+        req: <S::Request as Message>::Inner,
+    ) -> Result<<S::Response as Message>::Inner>
     where
         S: Service,
-        <S as Service>::Request: Serialize + Send,
-        <S as Service>::Response: for<'c> Deserialize<'c> + Send,
+        <S as Service>::Request: Message + Send,
+        <S as Service>::Response: Message + Send,
     {
         let req = Request::new::<S>(req, self.service_version)?;
 
@@ -99,7 +101,7 @@ impl<'a> Client<'a> {
 
         self.io.send(&req).await?;
         self.io.flush().await?;
-        let res = self
+        let mut res = self
             .io
             .next()
             .await
@@ -108,7 +110,7 @@ impl<'a> Client<'a> {
         if !res.is_success() {
             Err(ClientError::ErrorWithCode(res.code()))?;
         }
-        let res = res.into_body().bincode_decode()?;
+        let res = S::Response::from_body(res.body_mut()).unwrap();
 
         trace!(
             service_id = S::ID,

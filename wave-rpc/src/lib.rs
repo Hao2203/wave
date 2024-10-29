@@ -60,8 +60,10 @@
 //! ```
 //!
 
+#![feature(async_closure)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(type_alias_impl_trait)]
+#![feature(async_fn_traits)]
 
 pub mod body;
 pub mod client;

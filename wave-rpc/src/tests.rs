@@ -1,7 +1,7 @@
 use crate::client::Builder;
+use crate::message::Bincode;
 use crate::server::{RpcServer, RpcService};
 use crate::service::Service;
-use std::convert::Infallible;
 use std::time::Duration;
 
 struct MyService;
@@ -13,8 +13,8 @@ struct AddReq(u32, u32);
 struct AddRes(u32);
 
 impl Service for MyService {
-    type Request = AddReq;
-    type Response = AddRes;
+    type Request = Bincode<AddReq>;
+    type Response = Bincode<AddRes>;
 
     const ID: u32 = 1;
 }
@@ -22,8 +22,8 @@ impl Service for MyService {
 struct MyServiceState;
 
 impl MyServiceState {
-    async fn add(&self, req: AddReq) -> Result<AddRes, Infallible> {
-        Ok(AddRes(req.0 + req.1))
+    async fn add(&self, req: AddReq) -> AddRes {
+        AddRes(req.0 + req.1)
     }
 }
 

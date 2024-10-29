@@ -1,11 +1,11 @@
 use crate::{
     body::Body,
     error::{Error, Result},
+    message::Message,
     service::Version,
     Service,
 };
 use bytes::{Buf, BytesMut};
-use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
@@ -17,16 +17,19 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn new<S>(req: S::Request, service_version: impl Into<Version>) -> Result<Self>
+    pub fn new<S>(
+        req: <S::Request as Message>::Inner,
+        service_version: impl Into<Version>,
+    ) -> Result<Self>
     where
         S: Service,
-        S::Request: Serialize,
+        S::Request: Message,
     {
         let header = Header {
             service_id: S::ID,
             service_version: service_version.into().into(),
         };
-        let body = Body::bincode_encode(&req)?;
+        let body = S::Request::into_body(req).unwrap();
         Ok(Self { header, body })
     }
 
@@ -48,6 +51,10 @@ impl Request {
 
     pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
+    }
+
+    pub fn into_body(self) -> Body {
+        self.body
     }
 }
 
