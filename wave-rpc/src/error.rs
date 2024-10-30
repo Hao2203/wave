@@ -1,5 +1,7 @@
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(feature = "bincode")]

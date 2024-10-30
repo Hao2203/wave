@@ -66,6 +66,7 @@
 #![feature(async_fn_traits)]
 
 pub mod body;
+mod body_stream;
 pub mod client;
 pub mod error;
 pub mod message;
