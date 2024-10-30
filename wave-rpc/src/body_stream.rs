@@ -1,36 +1,51 @@
 #![allow(unused)]
 
+use async_stream::stream;
 use bytes::{Buf, BufMut, Bytes};
-use futures::{stream::BoxStream, Stream};
+use futures::{stream::BoxStream, Stream, StreamExt};
 use tokio_util::codec::{Decoder, Encoder};
 
 pub struct Body<'a> {
-    stream: BoxStream<'a, Chunk>,
+    stream: BoxStream<'a, Result<Bytes, std::io::Error>>,
 }
 
-struct Chunk {
-    bytes: Bytes,
+impl<'a> Body<'a> {
+    pub fn new(
+        mut stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin + 'a,
+    ) -> Self {
+        let stream = stream! {
+            while let Some(item) = stream.next().await {
+                if let Ok(item) = &item {
+                    if item.is_empty() {
+                        break;
+                    }
+                }
+                yield item
+            }
+        };
+        Self::from(Box::pin(stream) as BoxStream<_>)
+    }
+
+    pub fn from_bytes_stream(mut stream: impl Stream<Item = Bytes> + Send + Unpin + 'a) -> Self {
+        let stream = stream.map(Ok);
+        Self::from(Box::pin(stream) as BoxStream<_>)
+    }
 }
 
-impl Chunk {
-    pub fn new(bytes: Bytes) -> Self {
-        Self { bytes }
+impl<'a> From<BoxStream<'a, Result<Bytes, std::io::Error>>> for Body<'a> {
+    fn from(stream: BoxStream<'a, Result<Bytes, std::io::Error>>) -> Self {
+        Self { stream }
     }
+}
 
-    pub fn new_empty() -> Self {
-        Self::new(Bytes::new())
-    }
+impl Stream for Body<'_> {
+    type Item = Result<Bytes, std::io::Error>;
 
-    pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.bytes.len()
-    }
-
-    pub fn into_bytes(self) -> Bytes {
-        self.bytes
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.stream.poll_next_unpin(cx)
     }
 }
 
@@ -41,7 +56,7 @@ impl ChunkCodec {
 }
 
 impl Decoder for ChunkCodec {
-    type Item = Chunk;
+    type Item = Bytes;
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -56,25 +71,17 @@ impl Decoder for ChunkCodec {
 
         let bytes = src.split_to(len);
 
-        Ok(Some(Chunk::new(bytes.freeze())))
+        Ok(Some(bytes.freeze()))
     }
 }
 
-impl Encoder<&Chunk> for ChunkCodec {
+impl Encoder<Bytes> for ChunkCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: &Chunk, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
-        dst.reserve(item.bytes.len() + ChunkCodec::LENTH_SIZE);
-        dst.put_u64_le(item.bytes.len() as u64);
-        dst.extend_from_slice(item.bytes.as_ref());
+    fn encode(&mut self, item: Bytes, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        dst.reserve(item.len() + ChunkCodec::LENTH_SIZE);
+        dst.put_u64_le(item.len() as u64);
+        dst.extend_from_slice(&item);
         Ok(())
-    }
-}
-
-impl Encoder<Chunk> for ChunkCodec {
-    type Error = std::io::Error;
-
-    fn encode(&mut self, item: Chunk, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
-        self.encode(&item, dst)
     }
 }
