@@ -1,10 +1,8 @@
 use crate::error::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, Encoder};
 
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct Body {
     data: Bytes,
 }
@@ -12,56 +10,39 @@ pub struct Body {
 impl Body {
     pub const LENTH_SIZE: usize = 8;
 
-    pub fn new(data: Bytes) -> Self {
+    #[inline]
+    pub const fn new(data: Bytes) -> Self {
         Self { data }
     }
 
-    pub fn new_empty() -> Self {
+    #[inline]
+    pub const fn new_empty() -> Self {
         Self::new(Bytes::new())
     }
 
-    pub fn len(&self) -> usize {
+    #[inline]
+    pub const fn len(&self) -> usize {
         self.data.len()
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
+    #[inline]
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_ref()
     }
 
+    #[inline]
     pub fn into_bytes(self) -> Bytes {
         self.data
     }
-}
 
-#[cfg(feature = "bincode")]
-impl Body {
-    pub fn bincode_encode(data: impl Serialize) -> Result<Self> {
-        let bytes = bincode::serialize(&data)?;
-        Ok(Self::new(bytes.into()))
-    }
-
-    pub fn bincode_decode<'a, T: Deserialize<'a>>(&'a self) -> Result<T> {
-        let bytes = self.as_slice();
-        let value = bincode::deserialize(bytes)?;
-        Ok(value)
-    }
-}
-
-#[cfg(feature = "rmp")]
-impl Body {
-    pub fn rmp_encode(data: impl Serialize) -> Result<Self> {
-        let bytes = rmp_serde::to_vec(&data)?;
-        Ok(Self::new(bytes.into()))
-    }
-
-    pub fn rmp_decode<'a, T: Deserialize<'a>>(&'a self) -> Result<T> {
-        let bytes = self.as_slice();
-        let value = rmp_serde::from_slice(bytes)?;
-        Ok(value)
+    #[inline]
+    pub const fn bytes_mut(&mut self) -> &mut Bytes {
+        &mut self.data
     }
 }
 
@@ -71,7 +52,8 @@ pub(crate) struct BodyCodec {
 }
 
 impl BodyCodec {
-    pub fn new(max_size: usize) -> Self {
+    #[inline]
+    pub const fn new(max_size: usize) -> Self {
         Self { max_size }
     }
 }
@@ -79,6 +61,7 @@ impl BodyCodec {
 impl Encoder<Body> for BodyCodec {
     type Error = Error;
 
+    #[inline]
     fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
         self.encode(&item, dst)
     }
@@ -101,6 +84,7 @@ impl Encoder<&Body> for BodyCodec {
 impl Encoder<&mut Body> for BodyCodec {
     type Error = Error;
 
+    #[inline]
     fn encode(&mut self, item: &mut Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
         self.encode(item as &Body, dst)
     }

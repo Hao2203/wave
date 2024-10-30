@@ -1,8 +1,11 @@
 use crate::Body;
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::derive::{Display, From};
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display};
+use std::{
+    convert::Infallible,
+    fmt::{Debug, Display},
+};
 
 pub trait Message: Sized {
     type Error: Debug + Display;
@@ -74,9 +77,9 @@ where
     }
 
     fn from_body(body: &mut Body) -> Result<Self, Self::Error> {
-        let bytes = body.as_slice();
+        let bytes = body.bytes_mut();
 
-        let tag = bytes[0];
+        let tag = bytes.get_u8();
         if tag == 0 {
             Ok(Ok(T::from_body(body).map_err(|e| {
                 Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>
@@ -91,11 +94,61 @@ where
     fn into_body(self) -> Result<Body, Self::Error> {
         let (tag, body) = match self {
             Ok(inner) => (0, T::into_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
-            Err(inner) => (0, E::into_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
+            Err(inner) => (1, E::into_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
         };
         let mut bytes = BytesMut::with_capacity(1 + body.len());
         bytes.put_u8(tag);
         bytes.extend_from_slice(body.as_slice());
         Ok(Body::new(bytes.freeze()))
+    }
+}
+
+impl Message for () {
+    type Error = Infallible;
+    type Inner = ();
+
+    #[inline]
+    fn from_inner(inner: Self::Inner) -> Self {
+        inner
+    }
+
+    #[inline]
+    fn into_inner(self) -> Self::Inner {
+        self
+    }
+
+    #[inline]
+    fn into_body(self) -> Result<Body, Self::Error> {
+        Ok(Body::new(Bytes::new()))
+    }
+
+    #[inline]
+    fn from_body(_body: &mut Body) -> Result<Self, Self::Error> {
+        Ok(())
+    }
+}
+
+impl Message for Infallible {
+    type Error = Infallible;
+    type Inner = Infallible;
+
+    #[inline]
+    fn from_inner(inner: Self::Inner) -> Self {
+        inner
+    }
+
+    #[inline]
+    fn into_inner(self) -> Self::Inner {
+        self
+    }
+
+    #[inline]
+    fn into_body(self) -> Result<Body, Self::Error> {
+        Ok(Body::new(Bytes::new()))
+    }
+
+    #[inline]
+    fn from_body(_body: &mut Body) -> Result<Self, Self::Error> {
+        panic!("infallible")
     }
 }
