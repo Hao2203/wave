@@ -56,7 +56,7 @@ impl<'a, State> RpcService<'a, State> {
             + 'a,
     ) -> Self
     where
-        State: Send + Sync + 'a,
+        State: Sync + 'a,
         S: Service + Send + Sync + 'static,
         <S as Service>::Request: Message + Send,
         <S as Service>::Response: Message + Send,
@@ -84,7 +84,7 @@ impl<'a, State> RpcService<'a, State> {
         other: RpcService<'a, State2>,
     ) -> RpcService<'a, State2>
     where
-        State2: Send + Sync + 'a,
+        State2: Sync + 'a,
     {
         self.map.extend(other.map);
         self.set_state(other.state)
@@ -109,7 +109,7 @@ impl ServiceKey {
 #[async_trait]
 impl<'a, State> RpcHandler for RpcService<'a, State>
 where
-    State: Send + Sync + 'a,
+    State: Sync + 'a,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let id = req.header.service_id;
@@ -134,16 +134,16 @@ struct FnHandler<'a, State, F, Req, Resp> {
 #[async_trait]
 impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<'a, State, F, Req, Resp>
 where
-    State: Send + Sync + 'a,
-    F: Handle<&'a State, Req::Inner, Response = Resp::Inner> + Send + Sync,
+    State: Sync + 'a,
+    F: Handle<&'a State, Req::Inner, Response = Resp::Inner> + Sync,
     Req: Message + Send,
     Resp: Message + Send,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let body = req.body_mut();
         let req = Req::from_body(body).unwrap();
-        let resp = (self.f).call(self.state, req).await;
-        let body = Resp::into_body(resp).unwrap();
+        let resp = (self.f).call(self.state, req.into_inner()).await;
+        let body = Resp::from_inner(resp).into_body().unwrap();
         Ok(Response::success(body))
     }
 }
@@ -155,11 +155,11 @@ pub trait Handle<State, Req> {
 
 impl<F, Req, Resp, State> Handle<State, Req> for F
 where
-    F: AsyncFn(State, Req) -> Resp + Send + Sync,
+    F: AsyncFn(State, Req) -> Resp + Sync,
     for<'a> F::CallRefFuture<'a>: Send,
-    State: Send + Sync,
-    Req: Send + Sync,
-    Resp: Send + Sync,
+    State: Send,
+    Req: Send,
+    Resp: Send,
 {
     type Response = Resp;
     async fn call(&self, state: State, req: Req) -> Resp {

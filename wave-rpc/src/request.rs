@@ -29,7 +29,7 @@ impl Request {
             service_id: S::ID,
             service_version: service_version.into().into(),
         };
-        let body = S::Request::into_body(req).unwrap();
+        let body = S::Request::from_inner(req).into_body().unwrap();
         Ok(Self { header, body })
     }
 

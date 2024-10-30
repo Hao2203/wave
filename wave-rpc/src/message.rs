@@ -12,9 +12,9 @@ pub trait Message: Sized {
 
     fn into_inner(self) -> Self::Inner;
 
-    fn into_body(inner: Self::Inner) -> Result<Body, Self::Error>;
+    fn into_body(self) -> Result<Body, Self::Error>;
 
-    fn from_body(body: &mut Body) -> Result<Self::Inner, Self::Error>;
+    fn from_body(body: &mut Body) -> Result<Self, Self::Error>;
 }
 
 #[derive(From)]
@@ -27,20 +27,24 @@ where
     type Error = bincode::Error;
     type Inner = T;
 
+    #[inline]
     fn from_inner(inner: Self::Inner) -> Self {
         Self(inner)
     }
 
+    #[inline]
     fn into_inner(self) -> Self::Inner {
         self.0
     }
 
-    fn into_body(inner: Self::Inner) -> Result<Body, Self::Error> {
-        Ok(Body::new(bincode::serialize(&inner)?.into()))
+    #[inline]
+    fn into_body(self) -> Result<Body, Self::Error> {
+        Ok(Body::new(bincode::serialize(&self.0)?.into()))
     }
 
-    fn from_body(body: &mut Body) -> Result<Self::Inner, Self::Error> {
-        bincode::deserialize(body.as_slice())
+    #[inline]
+    fn from_body(body: &mut Body) -> Result<Self, Self::Error> {
+        Ok(Self(bincode::deserialize(body.as_slice())?))
     }
 }
 
@@ -59,21 +63,24 @@ where
     type Error = MessageError;
     type Inner = Result<T::Inner, E::Inner>;
 
+    #[inline]
     fn from_inner(inner: Self::Inner) -> Self {
         inner.map(T::from_inner).map_err(E::from_inner)
     }
 
+    #[inline]
     fn into_inner(self) -> Self::Inner {
-        self.map(|inner| inner.into_inner())
-            .map_err(|inner| inner.into_inner())
+        self.map(T::into_inner).map_err(E::into_inner)
     }
 
-    fn from_body(body: &mut Body) -> Result<Self::Inner, Self::Error> {
+    fn from_body(body: &mut Body) -> Result<Self, Self::Error> {
         let bytes = body.as_slice();
 
         let tag = bytes[0];
         if tag == 0 {
-            Ok(Ok(T::from_body(body).map_err(|e| Box::new(e) as Box<_>)?))
+            Ok(Ok(T::from_body(body).map_err(|e| {
+                Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>
+            })?))
         } else if tag == 1 {
             Ok(Err(E::from_body(body).map_err(|e| Box::new(e) as Box<_>)?))
         } else {
@@ -81,8 +88,8 @@ where
         }
     }
 
-    fn into_body(inner: Self::Inner) -> Result<Body, Self::Error> {
-        let (tag, body) = match inner {
+    fn into_body(self) -> Result<Body, Self::Error> {
+        let (tag, body) = match self {
             Ok(inner) => (0, T::into_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
             Err(inner) => (0, E::into_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
         };

@@ -110,7 +110,7 @@ impl<'a> Client<'a> {
         if !res.is_success() {
             Err(ClientError::ErrorWithCode(res.code()))?;
         }
-        let res = S::Response::from_body(res.body_mut()).unwrap();
+        let res = S::Response::from_body(res.body_mut()).unwrap().into_inner();
 
         trace!(
             service_id = S::ID,

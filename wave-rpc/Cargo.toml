@@ -32,7 +32,11 @@ deadpool = { version = "0.12", features = ["rt_tokio_1"] }
 
 tracing = { version = "0.1" }
 
-derive_more = { version = "1.0.0-beta.7", features = ["error"] }
+derive_more = { version = "1.0.0-beta.7", features = [
+    "error",
+    "display",
+    "from",
+] }
 
 [features]
 default = ["bincode"]
