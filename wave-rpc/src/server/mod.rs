@@ -1,8 +1,8 @@
 use crate::{
     body::BodyCodec,
     error::Result,
-    request::{Request, RequestDecoder},
-    response::{Response, ResponseEncoder},
+    request::{HeaderCodec, Request},
+    response::Response,
 };
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
@@ -30,7 +30,7 @@ impl RpcServer {
         io: (impl AsyncRead + AsyncWrite + Send + Unpin),
     ) -> Result<()> {
         let body_codec = BodyCodec::new(self.max_body_size);
-        let request_codec = RequestDecoder::new(body_codec);
+        let request_codec = HeaderCodec::new(body_codec);
         let response_codec = ResponseEncoder::new(request_codec);
         let framed = Framed::new(io, response_codec);
         let (mut sink, mut stream) = framed.split();

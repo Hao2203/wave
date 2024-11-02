@@ -1,8 +1,11 @@
 #![allow(unused)]
 
 use async_stream::stream;
-use bytes::{Buf, BufMut, Bytes};
-use futures::{stream::BoxStream, Stream, StreamExt};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures::{
+    stream::{self, BoxStream},
+    Stream, StreamExt,
+};
 use tokio_util::codec::{Decoder, Encoder};
 
 pub struct Body<'a> {
@@ -30,11 +33,31 @@ impl<'a> Body<'a> {
         let stream = stream.map(Ok);
         Self::from(Box::pin(stream) as BoxStream<_>)
     }
+
+    pub async fn bytes(&mut self) -> Result<Bytes, std::io::Error> {
+        let mut bytes = BytesMut::new();
+        while let Some(item) = self.stream.next().await {
+            bytes.extend(item?);
+        }
+        Ok(bytes.freeze())
+    }
+
+    fn from_bytes(bytes: Bytes) -> Self {
+        Self {
+            stream: stream::once(async { Ok(bytes) }).boxed(),
+        }
+    }
 }
 
 impl<'a> From<BoxStream<'a, Result<Bytes, std::io::Error>>> for Body<'a> {
     fn from(stream: BoxStream<'a, Result<Bytes, std::io::Error>>) -> Self {
         Self { stream }
+    }
+}
+
+impl From<Bytes> for Body<'_> {
+    fn from(bytes: Bytes) -> Self {
+        Self::from_bytes(bytes)
     }
 }
 

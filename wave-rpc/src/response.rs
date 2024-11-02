@@ -1,25 +1,24 @@
 use crate::{
+    body_stream::Body,
     error::{Code, Error, Result},
-    Body,
 };
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-#[derive(Debug, Clone)]
-pub struct Response {
+pub struct Response<'a> {
     code: u16,
-    body: Body,
+    body: Body<'a>,
 }
 
-impl Response {
+impl<'a> Response<'a> {
     pub const CODE_SIZE: usize = 2;
     pub const SUCCESS_CODE: u16 = 0;
 
-    pub fn new(code: u16, body: Body) -> Self {
+    pub fn new(code: u16, body: Body<'a>) -> Self {
         Self { body, code }
     }
 
-    pub fn success(body: Body) -> Self {
+    pub fn success(body: Body<'a>) -> Self {
         Self::new(0, body)
     }
 
@@ -39,123 +38,11 @@ impl Response {
         self.code
     }
 
-    pub fn into_body(self) -> Body {
+    pub fn into_body(self) -> Body<'a> {
         self.body
     }
 
-    pub fn body_mut(&mut self) -> &mut Body {
+    pub fn body_mut(&mut self) -> &mut Body<'a> {
         &mut self.body
-    }
-}
-
-pub(crate) struct ResponseDecoder<T> {
-    codec: T,
-}
-
-impl<T> ResponseDecoder<T> {
-    pub fn new(codec: T) -> Self {
-        Self { codec }
-    }
-}
-
-impl<T> Decoder for ResponseDecoder<T>
-where
-    T: Decoder<Item = Body, Error = Error>,
-{
-    type Item = Response;
-    type Error = Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < Response::CODE_SIZE {
-            return Ok(None);
-        }
-        let code = src.get_u16();
-
-        let body = self.codec.decode(src)?;
-        Ok(body.map(|body| Response { code, body }))
-    }
-}
-
-impl<T, B> Encoder<B> for ResponseDecoder<T>
-where
-    T: Encoder<B, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: B, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.codec.encode(item, dst)
-    }
-}
-
-pub(crate) struct ResponseEncoder<T> {
-    codec: T,
-}
-
-impl<T> ResponseEncoder<T> {
-    pub fn new(codec: T) -> Self {
-        Self { codec }
-    }
-}
-
-impl<T> Decoder for ResponseEncoder<T>
-where
-    T: Decoder,
-{
-    type Error = T::Error;
-    type Item = T::Item;
-
-    fn decode(
-        &mut self,
-        src: &mut BytesMut,
-    ) -> std::result::Result<Option<Self::Item>, Self::Error> {
-        self.codec.decode(src)
-    }
-}
-
-impl<T> Encoder<Response> for ResponseEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.encode(&item, dst)
-    }
-}
-
-impl<T> Encoder<&Response> for ResponseEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: &Response, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let Response { body, code } = item;
-        dst.reserve(Response::CODE_SIZE);
-        dst.put_u16(*code);
-        self.codec.encode(body, dst)?;
-        Ok(())
-    }
-}
-
-impl<T> Encoder<Body> for ResponseEncoder<T>
-where
-    T: Encoder<Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.codec.encode(item, dst)
-    }
-}
-
-impl<T> Encoder<&Body> for ResponseEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: &Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.codec.encode(item, dst)
     }
 }

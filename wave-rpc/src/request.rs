@@ -1,7 +1,7 @@
 use crate::{
-    body::Body,
+    body_stream::Body,
     error::{Error, Result},
-    message::Message,
+    message::stream::Message,
     service::Version,
     Service,
 };
@@ -10,13 +10,12 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
-#[derive(Debug, Clone)]
-pub struct Request {
+pub struct Request<'a> {
     pub header: Header,
-    pub body: Body,
+    pub body: Body<'a>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     pub fn new<S>(
         req: <S::Request as Message>::Inner,
         service_version: impl Into<Version>,
@@ -49,11 +48,11 @@ impl Request {
         &self.body
     }
 
-    pub fn body_mut(&mut self) -> &mut Body {
+    pub fn body_mut(&mut self) -> &mut Body<'a> {
         &mut self.body
     }
 
-    pub fn into_body(self) -> Body {
+    pub fn into_body(self) -> Body<'a> {
         self.body
     }
 }
@@ -89,21 +88,10 @@ impl Header {
     }
 }
 
-pub(crate) struct RequestDecoder<T> {
-    codec: T,
-}
+pub(crate) struct HeaderCodec;
 
-impl<T> RequestDecoder<T> {
-    pub fn new(codec: T) -> Self {
-        Self { codec }
-    }
-}
-
-impl<T> Decoder for RequestDecoder<T>
-where
-    T: Decoder<Item = Body, Error = Error>,
-{
-    type Item = Request;
+impl Decoder for HeaderCodec {
+    type Item = Header;
     type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -120,90 +108,25 @@ where
             })?
         };
 
-        let body = self.codec.decode(src)?;
-
-        Ok(body.map(|body| Request { header, body }))
+        Ok(Some(header))
     }
 }
 
-impl<T, B> Encoder<B> for RequestDecoder<T>
-where
-    T: Encoder<B, Error = Error>,
-{
+impl Encoder<Header> for HeaderCodec {
     type Error = Error;
 
-    fn encode(&mut self, item: B, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.codec.encode(item, dst)
-    }
-}
-
-pub(crate) struct RequestEncoder<T> {
-    codec: T,
-}
-
-impl<T> RequestEncoder<T> {
-    pub fn new(codec: T) -> Self {
-        Self { codec }
-    }
-}
-
-impl<T> Encoder<Request> for RequestEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.encode(&item, dst)
-    }
-}
-
-impl<T> Encoder<&Request> for RequestEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: &Request, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let Request { header, body } = item;
-        let header_bytes = header.as_bytes();
-        dst.reserve(header_bytes.len() + body.len());
+    fn encode(&mut self, item: Header, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let header_bytes = item.as_bytes();
+        dst.reserve(header_bytes.len());
         dst.extend_from_slice(header_bytes);
-        self.codec.encode(body, dst)?;
         Ok(())
     }
 }
 
-impl<T> Encoder<Body> for RequestEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
+impl Encoder<&Header> for HeaderCodec {
     type Error = Error;
 
-    fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.codec.encode(&item, dst)
-    }
-}
-
-impl<T> Encoder<&Body> for RequestEncoder<T>
-where
-    T: for<'a> Encoder<&'a Body, Error = Error>,
-{
-    type Error = Error;
-
-    fn encode(&mut self, item: &Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.codec.encode(item, dst)
-    }
-}
-
-impl<T> Decoder for RequestEncoder<T>
-where
-    T: Decoder<Error = Error>,
-{
-    type Item = T::Item;
-    type Error = Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.codec.decode(src)
+    fn encode(&mut self, item: &Header, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        self.encode(*item, dst)
     }
 }
