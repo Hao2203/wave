@@ -20,7 +20,6 @@ pub trait Message: Sized {
     fn from_body(body: &mut Body) -> Result<Self, Self::Error>;
 }
 
-#[derive(From)]
 pub struct Bincode<T>(T);
 
 impl<T> Message for Bincode<T>
@@ -156,28 +155,27 @@ impl Message for Infallible {
 pub mod stream {
     #![allow(unused)]
     use crate::body_stream::Body;
-    use bytes::Bytes;
+    use bytes::{Buf, Bytes, BytesMut};
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
     use std::{
         fmt::{Debug, Display},
         future::Future,
+        marker::PhantomData,
     };
 
     pub trait Message: Sized {
         type Error: Debug + Display;
         type Inner;
 
-        fn from_inner(inner: Self::Inner) -> Self;
+        fn make_body<'a>(inner: Self::Inner) -> Result<Body<'a>, Self::Error>;
 
-        fn into_inner(self) -> Self::Inner;
-
-        fn into_body<'a>(self) -> Result<Body<'a>, Self::Error>;
-
-        fn from_body(body: &mut Body) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+        fn from_body(
+            body: &mut Body<'_>,
+        ) -> impl Future<Output = Result<Self::Inner, Self::Error>> + Send;
     }
 
-    pub struct Bincode<T>(pub T);
+    pub struct Bincode<T>(PhantomData<T>);
 
     impl<T> Message for Bincode<T>
     where
@@ -186,25 +184,42 @@ pub mod stream {
         type Error = bincode::Error;
         type Inner = T;
 
-        #[inline]
-        fn from_inner(inner: Self::Inner) -> Self {
-            Self(inner)
+        async fn from_body(body: &mut Body<'_>) -> Result<Self::Inner, Self::Error> {
+            let bytes = body.bytes().await?;
+            bincode::deserialize(bytes.as_ref())
         }
 
-        #[inline]
-        fn into_inner(self) -> Self::Inner {
-            self.0
-        }
-
-        #[inline]
-        fn into_body<'a>(self) -> Result<Body<'a>, Self::Error> {
-            let bytes = bincode::serialize(&self.0)?;
+        fn make_body<'a>(inner: Self::Inner) -> Result<Body<'a>, Self::Error> {
+            let bytes = bincode::serialize(&inner)?;
             Ok(Body::from(Bytes::from(bytes)))
         }
+    }
 
-        #[inline]
-        async fn from_body(body: &mut Body<'_>) -> Result<Self, Self::Error> {
-            let bytes = body.bytes().await.unwrap();
+    use super::MessageError;
+    impl<T, E> Message for Result<T, E>
+    where
+        T: Message<Error: core::error::Error + Send + Sync + 'static>,
+        E: Message<Error: core::error::Error + Send + Sync + 'static>,
+    {
+        type Error = MessageError;
+        type Inner = Result<T::Inner, E::Inner>;
+
+        async fn from_body(body: &mut Body<'_>) -> Result<Self::Inner, Self::Error> {
+            let tag = body.bytes().await.unwrap().get_u8();
+            if tag == 0 {
+                Ok(Ok(T::from_body(body).await.unwrap()))
+            } else if tag == 1 {
+                Ok(Err(E::from_body(body).await.unwrap()))
+            } else {
+                Err(MessageError::UnexpectedTag(tag))
+            }
+        }
+
+        fn make_body<'a>(inner: Self::Inner) -> Result<Body<'a>, Self::Error> {
+            let (tag, body) = match inner {
+                Ok(inner) => (0, T::make_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
+                Err(inner) => (1, E::make_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
+            };
             todo!()
         }
     }

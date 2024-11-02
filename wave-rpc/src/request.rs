@@ -28,7 +28,7 @@ impl<'a> Request<'a> {
             service_id: S::ID,
             service_version: service_version.into().into(),
         };
-        let body = S::Request::from_inner(req).into_body().unwrap();
+        let body = S::Request::make_body(req).unwrap();
         Ok(Self { header, body })
     }
 
