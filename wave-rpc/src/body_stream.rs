@@ -7,7 +7,9 @@ use futures::{
     Stream, StreamExt, TryStreamExt,
 };
 use std::ops::Deref;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder, Framed, FramedRead};
+
+use crate::Transport;
 
 pub struct Body<'a> {
     stream: BoxStream<'a, Result<Frame, std::io::Error>>,
@@ -64,6 +66,32 @@ impl Stream for Body<'_> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         self.stream.poll_next_unpin(cx).map_ok(|frame| frame.0)
+    }
+}
+
+pub struct BodyTransport {}
+
+impl<'a> Transport<'a> for BodyTransport {
+    type Item = Body<'a>;
+    fn stream(
+        &mut self,
+        io: impl tokio::io::AsyncRead + Send + Sync + Unpin + 'a,
+    ) -> impl Stream<Item = crate::Result<Self::Item>> + Unpin + Send + 'a {
+        stream! {
+            let codec = FrameCodec;
+            let framed = FramedRead::new(io, codec);
+            let body = Body {
+                stream: framed.into_stream().boxed()
+            };
+            yield body
+        }
+    }
+
+    fn sink(
+        &mut self,
+        io: impl tokio::io::AsyncWrite + Send + Sync + Unpin + 'a,
+    ) -> impl futures::Sink<crate::Result<Self::Item>> + Unpin + Send + 'a {
+        todo!()
     }
 }
 
