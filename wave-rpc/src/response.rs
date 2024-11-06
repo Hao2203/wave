@@ -2,8 +2,6 @@ use crate::{
     body_stream::Body,
     error::{Code, Error, Result},
 };
-use bytes::{Buf, BufMut, BytesMut};
-use tokio_util::codec::{Decoder, Encoder};
 
 pub struct Response<'a> {
     code: u16,

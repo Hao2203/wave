@@ -16,10 +16,7 @@ pub struct Request<'a> {
 }
 
 impl<'a> Request<'a> {
-    pub fn new<S>(
-        req: <S::Request as Message>::Inner,
-        service_version: impl Into<Version>,
-    ) -> Result<Self>
+    pub fn new<S>(req: S::Request, service_version: impl Into<Version>) -> Result<Self>
     where
         S: Service,
         S::Request: Message,
@@ -28,7 +25,7 @@ impl<'a> Request<'a> {
             service_id: S::ID,
             service_version: service_version.into().into(),
         };
-        let body = S::Request::make_body(req).unwrap();
+        let body = req.into_body().unwrap();
         Ok(Self { header, body })
     }
 

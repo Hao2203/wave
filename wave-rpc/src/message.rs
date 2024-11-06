@@ -166,61 +166,29 @@ pub mod stream {
 
     pub trait Message: Sized {
         type Error: Debug + Display;
-        type Inner;
 
-        fn make_body<'a>(inner: Self::Inner) -> Result<Body<'a>, Self::Error>;
+        fn into_body<'a>(self) -> Result<Body<'a>, Self::Error>;
 
-        fn from_body(
-            body: &mut Body<'_>,
-        ) -> impl Future<Output = Result<Self::Inner, Self::Error>> + Send;
+        fn from_body(body: &mut Body<'_>)
+            -> impl Future<Output = Result<Self, Self::Error>> + Send;
     }
 
-    pub struct Bincode<T>(PhantomData<T>);
+    pub struct Bincode<T>(pub T);
 
     impl<T> Message for Bincode<T>
     where
         T: Serialize + for<'de> Deserialize<'de> + std::marker::Send,
     {
         type Error = bincode::Error;
-        type Inner = T;
 
-        async fn from_body(body: &mut Body<'_>) -> Result<Self::Inner, Self::Error> {
+        async fn from_body(body: &mut Body<'_>) -> Result<Self, Self::Error> {
             let bytes = body.bytes().await?;
-            bincode::deserialize(bytes.as_ref())
+            bincode::deserialize(bytes.as_ref()).map(Self)
         }
 
-        fn make_body<'a>(inner: Self::Inner) -> Result<Body<'a>, Self::Error> {
-            let bytes = bincode::serialize(&inner)?;
+        fn into_body<'a>(self) -> Result<Body<'a>, Self::Error> {
+            let bytes = bincode::serialize(&self.0)?;
             Ok(Body::from(Bytes::from(bytes)))
-        }
-    }
-
-    use super::MessageError;
-    impl<T, E> Message for Result<T, E>
-    where
-        T: Message<Error: core::error::Error + Send + Sync + 'static>,
-        E: Message<Error: core::error::Error + Send + Sync + 'static>,
-    {
-        type Error = MessageError;
-        type Inner = Result<T::Inner, E::Inner>;
-
-        async fn from_body(body: &mut Body<'_>) -> Result<Self::Inner, Self::Error> {
-            let tag = body.bytes().await.unwrap().get_u8();
-            if tag == 0 {
-                Ok(Ok(T::from_body(body).await.unwrap()))
-            } else if tag == 1 {
-                Ok(Err(E::from_body(body).await.unwrap()))
-            } else {
-                Err(MessageError::UnexpectedTag(tag))
-            }
-        }
-
-        fn make_body<'a>(inner: Self::Inner) -> Result<Body<'a>, Self::Error> {
-            let (tag, body) = match inner {
-                Ok(inner) => (0, T::make_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
-                Err(inner) => (1, E::make_body(inner).map_err(|e| Box::new(e) as Box<_>)?),
-            };
-            todo!()
         }
     }
 }
