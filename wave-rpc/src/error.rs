@@ -30,6 +30,9 @@ pub enum Error {
 
     #[error(transparent)]
     HandleError(anyhow::Error),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[derive(Debug)]

@@ -47,13 +47,7 @@ impl<'a, State> RpcService<'a, State> {
 
     pub fn register<S>(
         mut self,
-        f: impl Handle<
-                &'a State,
-                <S::Request as Message>::Inner,
-                Response = <S::Response as Message>::Inner,
-            > + Send
-            + Sync
-            + 'a,
+        f: impl Handle<&'a State, S::Request, Response = S::Response> + Send + Sync + 'a,
     ) -> Self
     where
         State: Sync + 'a,
@@ -135,15 +129,15 @@ struct FnHandler<'a, State, F, Req, Resp> {
 impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<'a, State, F, Req, Resp>
 where
     State: Sync + 'a,
-    F: Handle<&'a State, Req::Inner, Response = Resp::Inner> + Sync,
+    F: Handle<&'a State, Req, Response = Resp> + Sync,
     Req: Message + Send,
     Resp: Message + Send,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let body = req.body_mut();
-        let req = Req::from_body(body).unwrap();
-        let resp = (self.f).call(self.state, req.into_inner()).await;
-        let body = Resp::from_inner(resp).into_body().unwrap();
+        let req = Req::from_body(body).await.unwrap();
+        let resp = (self.f).call(self.state, req).await;
+        let body = resp.into_body().unwrap();
         Ok(Response::success(body))
     }
 }

@@ -3,10 +3,11 @@ use crate::{
     error::{Error, Result},
     message::stream::Message,
     service::Version,
+    transport::Transport,
     Service,
 };
 use bytes::{Buf, BytesMut};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
@@ -54,6 +55,33 @@ impl<'a> Request<'a> {
     }
 }
 
+impl<'a> Transport<'a> for Request<'a> {
+    type Error = crate::error::Error;
+
+    async fn from_reader(
+        mut io: impl AsyncRead + Send + Sync + Unpin + 'a,
+    ) -> Result<Option<Self>, Self::Error>
+    where
+        Self: Sized,
+    {
+        let header = Header::from_reader(&mut io).await?;
+        let req = Body::from_reader(io)
+            .await?
+            .map(|body| Request { header, body });
+
+        Ok(req)
+    }
+
+    async fn write_into(
+        &mut self,
+        mut io: impl AsyncWrite + Send + Sync + Unpin,
+    ) -> Result<(), Self::Error> {
+        self.header.write_into(&mut io).await?;
+        self.body.write_into(&mut io).await?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
 pub struct Header {
@@ -69,7 +97,7 @@ impl Header {
         [0u8; Self::SIZE]
     }
 
-    pub async fn from_reader(reader: &mut (impl AsyncRead + Unpin)) -> anyhow::Result<Self> {
+    pub async fn from_reader(reader: &mut (impl AsyncRead + Unpin)) -> Result<Self> {
         let mut header_buf = Header::buffer();
 
         let _ = reader.read(&mut header_buf).await?;
@@ -82,6 +110,28 @@ impl Header {
 
     pub fn as_bytes(&self) -> &[u8] {
         <Self as IntoBytes>::as_bytes(self)
+    }
+}
+
+impl Transport<'_> for Header {
+    type Error = crate::error::Error;
+
+    async fn from_reader(
+        mut io: impl AsyncRead + Send + Sync + Unpin,
+    ) -> Result<Option<Self>, Self::Error>
+    where
+        Self: Sized,
+    {
+        let header = Header::from_reader(&mut io).await;
+        Ok(header.ok())
+    }
+
+    async fn write_into(
+        &mut self,
+        mut io: impl AsyncWrite + Send + Sync + Unpin,
+    ) -> Result<(), Self::Error> {
+        io.write_all(self.as_bytes()).await?;
+        Ok(())
     }
 }
 

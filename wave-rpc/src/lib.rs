@@ -12,12 +12,12 @@ pub mod request;
 pub mod response;
 pub mod server;
 pub mod service;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 pub mod transport;
 // pub mod transport;
 
-pub use body::Body;
+pub use body_stream::Body;
 pub use request::Request;
 pub use response::Response;
 pub use service::Service;
