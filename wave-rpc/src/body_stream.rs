@@ -1,16 +1,11 @@
-#![allow(unused)]
-
-use async_stream::{stream, try_stream};
+use crate::transport::Transport;
+use async_stream::stream;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{
-    sink,
     stream::{self, BoxStream},
-    SinkExt, Stream, StreamExt, TryStream, TryStreamExt,
+    SinkExt, Stream, StreamExt, TryStreamExt,
 };
-use std::ops::Deref;
-use tokio_util::codec::{Decoder, Encoder, Framed, FramedRead, FramedWrite};
-
-use crate::{error::Error, transport::Transport};
+use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 pub struct Body<'a> {
     stream: BoxStream<'a, Result<Frame, std::io::Error>>,
@@ -18,7 +13,7 @@ pub struct Body<'a> {
 
 impl<'a> Body<'a> {
     pub fn new(
-        mut stream: impl Stream<Item = Result<Frame, std::io::Error>> + Send + Unpin + 'a,
+        stream: impl Stream<Item = Result<Frame, std::io::Error>> + Send + Unpin + 'a,
     ) -> Self {
         Self {
             stream: stream.boxed(),
@@ -26,16 +21,16 @@ impl<'a> Body<'a> {
     }
 
     pub fn new_empty() -> Self {
-        Self::new(stream::once(async { Ok(Frame::End) }).boxed())
+        Self::new(tokio_stream::once(Ok(Frame::End)).boxed())
     }
 
-    pub fn from_bytes_stream(mut stream: impl Stream<Item = Bytes> + Send + Unpin + 'a) -> Self {
+    pub fn from_bytes_stream(stream: impl Stream<Item = Bytes> + Send + Unpin + 'a) -> Self {
         let stream = stream.map(Ok);
         Self::from_result_stream(stream)
     }
 
     pub fn from_result_stream(
-        mut stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin + 'a,
+        stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin + 'a,
     ) -> Self {
         let stream = stream
             .map_ok(Frame::Data)
@@ -136,9 +131,9 @@ struct FrameCodec;
 
 impl FrameCodec {
     pub const LENTH_SIZE: usize = 8;
+    pub const TAG_SIZE: usize = 1;
     pub const END_TAG: u8 = 0;
     pub const DATA_TAG: u8 = 1;
-    pub const TAG_SIZE: usize = 1;
 }
 
 impl Decoder for FrameCodec {
@@ -153,6 +148,8 @@ impl Decoder for FrameCodec {
         let tag = src.get_u8();
         if tag == 0 {
             return Ok(Some(Frame::End));
+        } else if tag != 1 {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
         }
 
         let len = src.get_u64_le() as usize;

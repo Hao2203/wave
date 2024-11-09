@@ -1,6 +1,5 @@
-use tokio::io::{AsyncRead, AsyncWrite};
-
 use std::{future::Future, io::Error as IoError};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub type IoResult<T, E = IoError> = std::result::Result<T, E>;
 
