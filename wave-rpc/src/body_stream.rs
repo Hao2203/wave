@@ -2,9 +2,11 @@ use crate::transport::Transport;
 use async_stream::stream;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{
+    future::BoxFuture,
     stream::{self, BoxStream},
     SinkExt, Stream, StreamExt, TryStreamExt,
 };
+use tokio::io::AsyncWrite;
 use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 pub struct Body<'a> {
@@ -87,16 +89,18 @@ impl<'a> Transport<'a> for Body<'a> {
         Ok(Some(body))
     }
 
-    async fn write_into(
-        &mut self,
-        io: impl tokio::io::AsyncWrite + Send + Sync + Unpin,
-    ) -> Result<(), Self::Error> {
-        let mut framed = FramedWrite::new(io, FrameCodec);
-        while let Some(frame) = self.stream.next().await {
-            framed.send(frame?).await?;
-        }
-        framed.send(Frame::End).await?;
-        Ok(())
+    fn write_into(
+        &'a mut self,
+        io: &'a mut (dyn AsyncWrite + Send + Unpin),
+    ) -> BoxFuture<'a, Result<(), Self::Error>> {
+        Box::pin(async {
+            let mut framed = FramedWrite::new(io, FrameCodec);
+            while let Some(frame) = self.stream.next().await {
+                framed.send(frame?).await?;
+            }
+            framed.send(Frame::End).await?;
+            Ok(())
+        })
     }
 }
 

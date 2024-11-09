@@ -1,3 +1,4 @@
+use futures::future::BoxFuture;
 use std::{future::Future, io::Error as IoError};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -12,7 +13,7 @@ pub trait Transport<'a> {
         Self: Sized;
 
     fn write_into(
-        &mut self,
-        io: impl AsyncWrite + Send + Sync + Unpin,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+        &'a mut self,
+        io: &'a mut (dyn AsyncWrite + Send + Unpin),
+    ) -> BoxFuture<'a, Result<(), Self::Error>>;
 }
