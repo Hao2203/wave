@@ -4788,6 +4788,7 @@ dependencies = [
  "serde_bytes",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "zerocopy 0.8.2",

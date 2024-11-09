@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use async_stream::stream;
+use async_stream::{stream, try_stream};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{
     sink,
@@ -26,7 +26,7 @@ impl<'a> Body<'a> {
     }
 
     pub fn new_empty() -> Self {
-        Self::new(stream::once(async { Ok(Frame(Bytes::new())) }).boxed())
+        Self::new(stream::once(async { Ok(Frame::End) }).boxed())
     }
 
     pub fn from_bytes_stream(mut stream: impl Stream<Item = Bytes> + Send + Unpin + 'a) -> Self {
@@ -37,16 +37,33 @@ impl<'a> Body<'a> {
     pub fn from_result_stream(
         mut stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin + 'a,
     ) -> Self {
-        let stream = stream.map_ok(Frame).boxed();
+        let stream = stream
+            .map_ok(Frame::Data)
+            .chain(stream::once(async { Ok(Frame::End) }))
+            .boxed();
         Self { stream }
     }
 
     pub async fn bytes(&mut self) -> Result<Bytes, std::io::Error> {
         let mut bytes = BytesMut::new();
-        while let Some(item) = self.stream.next().await {
-            bytes.extend(item?.0);
+        while let Some(item) = self.bytes_stream().next().await {
+            bytes.extend(item?);
         }
         Ok(bytes.freeze())
+    }
+
+    pub fn bytes_stream(&mut self) -> BoxStream<'_, Result<Bytes, std::io::Error>> {
+        let stream = stream! {
+            while let Some(item) = self.stream.next().await {
+                match item? {
+                    Frame::End => return,
+                    Frame::Data(data) => {
+                        yield Ok(data);
+                    }
+                }
+            }
+        };
+        Box::pin(stream)
     }
 }
 
@@ -56,14 +73,9 @@ impl<'a> From<BoxStream<'a, Result<Bytes, std::io::Error>>> for Body<'a> {
     }
 }
 
-impl Stream for Body<'_> {
-    type Item = Result<Bytes, std::io::Error>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.stream.poll_next_unpin(cx).map_ok(|frame| frame.0)
+impl<'a> From<Bytes> for Body<'a> {
+    fn from(bytes: Bytes) -> Self {
+        Self::from_bytes_stream(tokio_stream::once(bytes))
     }
 }
 
@@ -86,33 +98,16 @@ impl<'a> Transport<'a> for Body<'a> {
     ) -> Result<(), Self::Error> {
         let mut framed = FramedWrite::new(io, FrameCodec);
         while let Some(frame) = self.stream.next().await {
-            framed.send(frame?.into()).await?;
+            framed.send(frame?).await?;
         }
-        framed.send(Frame(Bytes::new())).await?;
-        framed.close().await?;
+        framed.send(Frame::End).await?;
         Ok(())
     }
 }
-pub struct Frame(pub Bytes);
 
-impl From<Frame> for Bytes {
-    fn from(frame: Frame) -> Self {
-        frame.0
-    }
-}
-
-impl From<Bytes> for Frame {
-    fn from(bytes: Bytes) -> Self {
-        Self(bytes)
-    }
-}
-
-impl Deref for Frame {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub enum Frame {
+    End,
+    Data(Bytes),
 }
 
 impl Transport<'_> for Frame {
@@ -132,8 +127,7 @@ impl Transport<'_> for Frame {
         io: impl tokio::io::AsyncWrite + Send + Sync + Unpin,
     ) -> Result<(), Self::Error> {
         let mut framed = FramedWrite::new(io, FrameCodec);
-        framed.send(self.0.split_to(self.0.len()).into()).await?;
-        framed.flush().await?;
+        framed.send(self).await?;
         Ok(())
     }
 }
@@ -142,6 +136,9 @@ struct FrameCodec;
 
 impl FrameCodec {
     pub const LENTH_SIZE: usize = 8;
+    pub const END_TAG: u8 = 0;
+    pub const DATA_TAG: u8 = 1;
+    pub const TAG_SIZE: usize = 1;
 }
 
 impl Decoder for FrameCodec {
@@ -153,6 +150,11 @@ impl Decoder for FrameCodec {
             return Ok(None);
         }
 
+        let tag = src.get_u8();
+        if tag == 0 {
+            return Ok(Some(Frame::End));
+        }
+
         let len = src.get_u64_le() as usize;
 
         if src.len() < len {
@@ -161,7 +163,7 @@ impl Decoder for FrameCodec {
 
         let bytes = src.split_to(len);
 
-        Ok(Some(Frame(bytes.freeze())))
+        Ok(Some(Frame::Data(bytes.freeze())))
     }
 }
 
@@ -169,9 +171,32 @@ impl Encoder<Frame> for FrameCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: Frame, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
-        dst.reserve(item.len() + FrameCodec::LENTH_SIZE);
-        dst.put_u64_le(item.len() as u64);
-        dst.extend_from_slice(&item);
+        self.encode(&item, dst)
+    }
+}
+
+impl Encoder<&Frame> for FrameCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, item: &Frame, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        dst.reserve(FrameCodec::TAG_SIZE);
+        match item {
+            Frame::End => dst.put_u8(FrameCodec::END_TAG),
+            Frame::Data(data) => {
+                dst.put_u8(FrameCodec::DATA_TAG);
+                dst.reserve(data.len() + FrameCodec::LENTH_SIZE);
+                dst.put_u64_le(data.len() as u64);
+                dst.extend_from_slice(&data);
+            }
+        }
         Ok(())
+    }
+}
+
+impl Encoder<&mut Frame> for FrameCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, item: &mut Frame, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        self.encode(&*item, dst)
     }
 }
