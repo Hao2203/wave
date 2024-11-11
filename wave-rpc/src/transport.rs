@@ -21,12 +21,15 @@ pub trait Transport<'a> {
     ) -> Result<(), Self::Error>;
 }
 
-pub struct Stream<'a, T> {
-    inner: BoxStream<'a, T>,
+pub struct Stream<'a, T>
+where
+    T: for<'b> Transport<'b>,
+{
+    inner: BoxStream<'a, Result<T, <T as Transport<'a>>::Error>>,
 }
 
 #[async_trait]
-impl<'a, T> Transport<'a> for Stream<'a, Result<T, <T as Transport<'_>>::Error>>
+impl<'a, T> Transport<'a> for Stream<'a, T>
 where
     T: Send + for<'b> Transport<'b, Error: Send>,
 {
