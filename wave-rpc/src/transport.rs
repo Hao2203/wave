@@ -1,19 +1,24 @@
 use async_stream::stream;
 use async_trait::async_trait;
 use futures::{stream::BoxStream, StreamExt};
-use std::{future::Future, io::Error as IoError, pin::Pin};
+use std::{
+    fmt::{Debug, Display},
+    future::Future,
+    io::{self, Error as IoError},
+    pin::Pin,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub type IoResult<T, E = IoError> = std::result::Result<T, E>;
 
 #[async_trait]
 pub trait Transport<'a> {
-    type Error;
+    type Error: Display + Debug + core::error::Error + Send;
     async fn from_reader(
         io: impl AsyncRead + Send + Sync + Unpin + 'a,
     ) -> Result<Option<Self>, Self::Error>
     where
-        Self: Sized + 'a;
+        Self: Sized;
 
     async fn write_into(
         &mut self,
@@ -21,28 +26,31 @@ pub trait Transport<'a> {
     ) -> Result<(), Self::Error>;
 }
 
-pub struct Stream<'a, T>
-where
-    T: for<'b> Transport<'b>,
-{
-    inner: BoxStream<'a, Result<T, <T as Transport<'a>>::Error>>,
+pub struct Stream<'a, T> {
+    inner: BoxStream<'a, Result<T, io::Error>>,
 }
 
 #[async_trait]
 impl<'a, T> Transport<'a> for Stream<'a, T>
 where
-    T: Send + for<'b> Transport<'b, Error: Send>,
+    T: Send + for<'b> Transport<'b> + 'a,
 {
-    type Error = <T as Transport<'a>>::Error;
+    type Error = io::Error;
     async fn from_reader(
         mut io: impl AsyncRead + Send + Sync + Unpin + 'a,
     ) -> Result<Option<Self>, Self::Error>
     where
-        Self: Sized + 'a,
+        Self: Sized,
     {
         let stream = stream! {
-            while let Ok(Some(item)) = T::from_reader(&mut io).await {
-                yield Ok(item)
+            loop  {
+                let item = T::from_reader(&mut io).await.transpose();
+                match item {
+                    Some(item) => yield item.map_err(|_e| {
+                        io::ErrorKind::NotFound.into()
+                    }),
+                    None => {}
+                }
             }
         };
         Ok(Some(Stream {
