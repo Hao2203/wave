@@ -1,5 +1,6 @@
 use crate::transport::Transport;
 use async_stream::stream;
+use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{
     future::BoxFuture,
@@ -76,43 +77,40 @@ impl<'a> From<Bytes> for Body<'a> {
     }
 }
 
-impl<'a> Transport<'a> for Body<'a> {
-    type Error = std::io::Error;
-    async fn from_reader(
-        io: impl tokio::io::AsyncRead + Send + Sync + Unpin + 'a,
-    ) -> Result<Option<Self>, Self::Error>
-    where
-        Self: Sized,
-    {
-        let stream = FramedRead::new(io, FrameCodec);
-        let body = Self::new(stream);
-        Ok(Some(body))
-    }
+// impl<'a> Transport for Body<'a> {
+//     type Error = std::io::Error;
+//     async fn from_reader<'b>(
+//         io: impl tokio::io::AsyncRead + Send + Sync + Unpin + 'b + 'a,
+//     ) -> Result<Option<Self>, Self::Error>
+//     where
+//         Self: Sized + 'b,
+//         'b: 'a,
+//     {
+//         let stream = FramedRead::new(io, FrameCodec);
+//         let body = Self::new(stream);
+//         Ok(Some(body))
+//     }
 
-    fn write_into(
-        &'a mut self,
-        io: &'a mut (dyn AsyncWrite + Send + Unpin),
-    ) -> BoxFuture<'a, Result<(), Self::Error>> {
-        Box::pin(async {
-            let mut framed = FramedWrite::new(io, FrameCodec);
-            while let Some(frame) = self.stream.next().await {
-                framed.send(frame?).await?;
-            }
-            framed.send(Frame::End).await?;
-            Ok(())
-        })
-    }
-}
+//     async fn write_into(&mut self, io: impl AsyncWrite + Send + Unpin) -> Result<(), Self::Error> {
+//         let mut framed = FramedWrite::new(io, FrameCodec);
+//         while let Some(frame) = self.stream.next().await {
+//             framed.send(frame?).await?;
+//         }
+//         framed.send(Frame::End).await?;
+//         Ok(())
+//     }
+// }
 
 pub enum Frame {
     End,
     Data(Bytes),
 }
 
+#[async_trait]
 impl Transport<'_> for Frame {
     type Error = std::io::Error;
     async fn from_reader(
-        io: impl tokio::io::AsyncRead + Send + Sync + Unpin,
+        io: impl tokio::io::AsyncRead + Send + Unpin,
     ) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized,
@@ -123,7 +121,7 @@ impl Transport<'_> for Frame {
 
     async fn write_into(
         &mut self,
-        io: impl tokio::io::AsyncWrite + Send + Sync + Unpin,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
         let mut framed = FramedWrite::new(io, FrameCodec);
         framed.send(self).await?;

@@ -6,6 +6,7 @@ use crate::{
     transport::Transport,
     Service,
 };
+use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
@@ -55,32 +56,32 @@ impl<'a> Request<'a> {
     }
 }
 
-impl<'a> Transport<'a> for Request<'a> {
-    type Error = crate::error::Error;
+// impl<'a> Transport for Request<'a> {
+//     type Error = crate::error::Error;
 
-    async fn from_reader(
-        mut io: impl AsyncRead + Send + Sync + Unpin + 'a,
-    ) -> Result<Option<Self>, Self::Error>
-    where
-        Self: Sized,
-    {
-        let header = Header::from_reader(&mut io).await?;
-        let req = Body::from_reader(io)
-            .await?
-            .map(|body| Request { header, body });
+//     async fn from_reader(
+//         mut io: impl AsyncRead + Send + Sync + Unpin,
+//     ) -> Result<Option<Self>, Self::Error>
+//     where
+//         Self: Sized,
+//     {
+//         let header = Header::from_reader(&mut io).await?;
+//         let req = Body::from_reader(io)
+//             .await?
+//             .map(|body| Request { header, body });
 
-        Ok(req)
-    }
+//         Ok(req)
+//     }
 
-    async fn write_into(
-        &mut self,
-        mut io: impl AsyncWrite + Send + Sync + Unpin,
-    ) -> Result<(), Self::Error> {
-        self.header.write_into(&mut io).await?;
-        self.body.write_into(&mut io).await?;
-        Ok(())
-    }
-}
+//     async fn write_into(
+//         &mut self,
+//         mut io: impl AsyncWrite + Send + Unpin,
+//     ) -> Result<(), Self::Error> {
+//         self.header.write_into(&mut io).await?;
+//         self.body.write_into(&mut io).await?;
+//         Ok(())
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
@@ -113,6 +114,7 @@ impl Header {
     }
 }
 
+#[async_trait]
 impl Transport<'_> for Header {
     type Error = crate::error::Error;
 
@@ -128,7 +130,7 @@ impl Transport<'_> for Header {
 
     async fn write_into(
         &mut self,
-        mut io: impl AsyncWrite + Send + Sync + Unpin,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
         io.write_all(self.as_bytes()).await?;
         Ok(())
