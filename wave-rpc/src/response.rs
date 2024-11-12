@@ -3,7 +3,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::{
     body_stream::Body,
     error::{Code, Error, Result},
-    transport::Transport,
+    transport::FromReader,
 };
 
 pub struct Response<'a> {

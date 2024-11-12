@@ -3,7 +3,7 @@ use crate::{
     error::{Error, Result},
     message::stream::Message,
     service::Version,
-    transport::Transport,
+    transport::FromReader,
     Service,
 };
 use async_trait::async_trait;
@@ -115,25 +115,15 @@ impl Header {
 }
 
 #[async_trait]
-impl Transport<'_> for Header {
+impl FromReader<'_> for Header {
     type Error = crate::error::Error;
 
-    async fn from_reader(
-        mut io: impl AsyncRead + Send + Sync + Unpin,
-    ) -> Result<Option<Self>, Self::Error>
+    async fn from_reader(mut io: impl AsyncRead + Send + Unpin) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized,
     {
         let header = Header::from_reader(&mut io).await;
         Ok(header.ok())
-    }
-
-    async fn write_into(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error> {
-        io.write_all(self.as_bytes()).await?;
-        Ok(())
     }
 }
 
