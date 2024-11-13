@@ -1,9 +1,8 @@
 use crate::{
     body_stream::Body,
     error::{Error, Result},
-    message::stream::Message,
+    message::Message,
     service::Version,
-    transport::FromReader,
     Service,
 };
 use async_trait::async_trait;
@@ -18,10 +17,10 @@ pub struct Request<'a> {
 }
 
 impl<'a> Request<'a> {
-    pub fn new<S>(req: S::Request, service_version: impl Into<Version>) -> Result<Self>
+    pub fn new<S>(req: S::Request<'a>, service_version: impl Into<Version>) -> Result<Self>
     where
         S: Service,
-        S::Request: Message,
+        S::Request<'a>: Message<'a>,
     {
         let header = Header {
             service_id: S::ID,
@@ -115,15 +114,25 @@ impl Header {
 }
 
 #[async_trait]
-impl FromReader<'_> for Header {
+impl<'a> Message<'a> for Header {
     type Error = crate::error::Error;
 
-    async fn from_reader(mut io: impl AsyncRead + Send + Unpin) -> Result<Option<Self>, Self::Error>
+    async fn from_reader(
+        mut io: impl AsyncRead + Send + Unpin + 'a,
+    ) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized,
     {
         let header = Header::from_reader(&mut io).await;
         Ok(header.ok())
+    }
+
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        io.write_all(self.as_bytes()).await?;
+        Ok(())
     }
 }
 

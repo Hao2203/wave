@@ -1,4 +1,4 @@
-use crate::transport::FromReader;
+use crate::message::Message;
 use async_stream::stream;
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -107,7 +107,7 @@ pub enum Frame {
 }
 
 #[async_trait]
-impl FromReader<'_> for Frame {
+impl Message<'_> for Frame {
     type Error = std::io::Error;
     async fn from_reader(
         io: impl tokio::io::AsyncRead + Send + Unpin,
@@ -117,6 +117,15 @@ impl FromReader<'_> for Frame {
     {
         let mut framed = FramedRead::new(io, FrameCodec);
         framed.next().await.transpose()
+    }
+
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        let mut framed = FramedWrite::new(io, FrameCodec);
+        framed.send(self.clone()).await?;
+        Ok(())
     }
 }
 

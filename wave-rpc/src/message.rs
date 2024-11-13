@@ -1,78 +1,52 @@
-#![allow(unused)]
-use crate::body_stream::Body;
-use bytes::{Buf, Bytes, BytesMut};
-use futures::StreamExt;
-use serde::{Deserialize, Serialize};
 use std::{
-    fmt::{Debug, Display},
     future::Future,
-    marker::PhantomData,
+    pin::Pin,
+    task::{Context, Poll},
 };
 
-pub trait Message: Sized {
-    type Error: Debug + Display;
+use crate::error::Error;
+use async_stream::stream;
+use bytes::Bytes;
+use futures::{future::BoxFuture, stream::BoxStream, StreamExt};
+use tokio::io::AsyncRead;
 
-    fn into_body<'a>(self) -> Result<Body<'a>, Self::Error>;
-
-    fn from_body(body: &mut Body<'_>) -> impl Future<Output = Result<Self, Self::Error>> + Send;
-}
-
-pub struct Bincode<T>(pub T);
-
-impl<T> Message for Bincode<T>
-where
-    T: Serialize + for<'de> Deserialize<'de> + std::marker::Send,
-{
-    type Error = bincode::Error;
-
-    async fn from_body(body: &mut Body<'_>) -> Result<Self, Self::Error> {
-        let bytes = body.bytes().await?;
-        bincode::deserialize(bytes.as_ref()).map(Self)
-    }
-
-    fn into_body<'a>(self) -> Result<Body<'a>, Self::Error> {
-        let bytes = bincode::serialize(&self.0)?;
-        Ok(Body::from(Bytes::from(bytes)))
-    }
-}
-
-pub mod stream {
-    #![allow(unused)]
-    use crate::body_stream::Body;
-    use bytes::{Buf, Bytes, BytesMut};
-    use futures::StreamExt;
-    use serde::{Deserialize, Serialize};
-    use std::{
-        fmt::{Debug, Display},
-        future::Future,
-        marker::PhantomData,
-    };
-
-    pub trait Message: Sized {
-        type Error: Debug + Display;
-
-        fn into_body<'a>(self) -> Result<Body<'a>, Self::Error>;
-
-        fn from_body(body: &mut Body<'_>)
-            -> impl Future<Output = Result<Self, Self::Error>> + Send;
-    }
-
-    pub struct Bincode<T>(pub T);
-
-    impl<T> Message for Bincode<T>
+pub trait Message<'a> {
+    fn from_reader(
+        io: impl AsyncRead + Send + Unpin + 'a,
+    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: Serialize + for<'de> Deserialize<'de> + std::marker::Send,
+        Self: Sized;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, Error>>>;
+}
+
+pub struct Stream<'a, T> {
+    inner: BoxStream<'a, T>,
+}
+
+impl<'a, T> Message<'a> for Stream<'a, T>
+where
+    T: Send + for<'b> Message<'b> + 'a,
+{
+    fn from_reader(
+        mut io: impl AsyncRead + Send + Unpin + 'a,
+    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
+    where
+        Self: Sized,
     {
-        type Error = bincode::Error;
+        let stream = stream! {
+            while let Ok(Some(item)) = T::from_reader(&mut io).await {
+                yield item
+            }
+        };
+        Box::pin(async move {
+            Ok(Some(Stream {
+                inner: stream.boxed(),
+            }))
+        })
+    }
 
-        async fn from_body(body: &mut Body<'_>) -> Result<Self, Self::Error> {
-            let bytes = body.bytes().await?;
-            bincode::deserialize(bytes.as_ref()).map(Self)
-        }
-
-        fn into_body<'a>(self) -> Result<Body<'a>, Self::Error> {
-            let bytes = bincode::serialize(&self.0)?;
-            Ok(Body::from(Bytes::from(bytes)))
-        }
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, Error>>> {
+        self.get_mut().inner.map(Ok).poll_next_unpin(cx)
     }
 }

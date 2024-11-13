@@ -7,15 +7,15 @@ pub mod body;
 mod body_stream;
 pub mod client;
 pub mod error;
-pub mod message;
+// pub mod message;
 pub mod request;
 pub mod response;
 pub mod server;
 pub mod service;
 // #[cfg(test)]
 // mod tests;
-pub mod transport;
-// pub mod transport;
+pub mod code;
+pub mod message;
 
 pub use body_stream::Body;
 pub use request::Request;

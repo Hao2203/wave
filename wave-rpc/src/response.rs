@@ -2,8 +2,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     body_stream::Body,
-    error::{Code, Error, Result},
-    transport::FromReader,
+    error::{Error, Result},
+    message::Message,
 };
 
 pub struct Response<'a> {
@@ -29,10 +29,6 @@ impl<'a> Response<'a> {
 
     pub fn is_success(&self) -> bool {
         self.code == Self::SUCCESS_CODE
-    }
-
-    pub fn error_code(&self) -> Result<Code, Error> {
-        Code::try_from(self.code())
     }
 
     pub fn code(&self) -> u16 {

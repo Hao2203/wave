@@ -5,8 +5,8 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 use crate::message::Message;
 
 pub trait Service {
-    type Request: Message;
-    type Response: Message;
+    type Request<'a>;
+    type Response<'a>;
 
     const ID: u32;
 }
