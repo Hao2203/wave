@@ -17,9 +17,7 @@ use std::{
 pub trait Message<'a> {
     type Error: core::error::Error + Send;
 
-    async fn from_reader(
-        io: impl AsyncRead + Send + Unpin + 'a,
-    ) -> Result<Option<Self>, Self::Error>
+    async fn from_reader(io: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
     where
         Self: Sized;
 
@@ -43,21 +41,19 @@ where
 {
     type Error = <T as Message<'a>>::Error;
 
-    async fn from_reader(
-        mut io: impl AsyncRead + Send + Unpin + 'a,
-    ) -> Result<Option<Self>, Self::Error>
+    async fn from_reader(mut io: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
         let stream = stream! {
-            while let Some(Ok(item)) = T::from_reader(&mut io).await.transpose() {
-                yield Ok(item)
+            loop {
+                yield T::from_reader(&mut io).await
             }
         };
 
-        Ok(Some(Stream {
+        Ok(Stream {
             inner: stream.boxed(),
-        }))
+        })
     }
 
     async fn write_in(
