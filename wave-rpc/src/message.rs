@@ -4,22 +4,26 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
     future::BoxFuture,
-    ready,
+    pin_mut, ready,
     stream::{self, BoxStream},
     AsyncRead, AsyncWrite, StreamExt,
 };
 use std::{
+    convert::Infallible,
+    future::Future,
     pin::{pin, Pin},
     task::{Context, Poll},
 };
 
-#[async_trait]
 pub trait Message<'a> {
     type Error: core::error::Error + Send;
 
-    async fn from_reader(io: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
+    fn from_reader(
+        io: impl AsyncRead + Send + Unpin + 'a,
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
-        Self: Sized;
+        Self: Sized,
+        Result<Self, Self::Error>: 'a;
 
     async fn write_in(
         &mut self,
@@ -27,32 +31,27 @@ pub trait Message<'a> {
     ) -> Result<(), Self::Error>;
 }
 
-pub struct Stream<'a, T>
-where
-    T: Message<'a>,
-{
-    inner: BoxStream<'a, Result<T, T::Error>>,
+pub struct Stream<T> {
+    reader: Box<dyn AsyncRead + Send + Unpin>,
+    _marker: std::marker::PhantomData<fn() -> T>,
 }
 
-#[async_trait]
-impl<'a, T> Message<'a> for Stream<'a, T>
+impl<T, E> Message<'static> for Stream<T>
 where
-    T: Send + for<'b> Message<'b> + 'a,
+    T: Send + for<'b> Message<'b, Error = E>,
+    E: core::error::Error + Send,
 {
-    type Error = <T as Message<'a>>::Error;
+    type Error = E;
 
-    async fn from_reader(mut io: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
+    async fn from_reader(
+        mut io: impl AsyncRead + Send + Unpin + 'static,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        let stream = stream! {
-            loop {
-                yield T::from_reader(&mut io).await
-            }
-        };
-
         Ok(Stream {
-            inner: stream.boxed(),
+            reader: Box::new(io),
+            _marker: std::marker::PhantomData,
         })
     }
 
@@ -60,9 +59,26 @@ where
         &mut self,
         io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
-        while let Some(mut item) = self.inner.next().await {
+        while let Some(item) = self.next().await {
             item?.write_in(io).await?
         }
         Ok(())
+    }
+}
+
+impl<T, E> stream::Stream for Stream<T>
+where
+    T: Send + for<'b> Message<'b, Error = E>,
+{
+    type Item = Result<T, E>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let io = &mut self.get_mut().reader;
+        let fut = async move {
+            let item = T::from_reader(io).await;
+            Some(item)
+        };
+        pin_mut!(fut);
+        fut.poll(cx)
     }
 }
