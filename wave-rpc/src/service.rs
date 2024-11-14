@@ -1,8 +1,7 @@
+#![allow(unused)]
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
-
-use crate::message::Message;
 
 pub trait Service {
     type Request<'a>;

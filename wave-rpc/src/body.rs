@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::error::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
@@ -59,7 +60,7 @@ impl BodyCodec {
 }
 
 impl Encoder<Body> for BodyCodec {
-    type Error = Error;
+    type Error = std::io::Error;
 
     #[inline]
     fn encode(&mut self, item: Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -68,11 +69,11 @@ impl Encoder<Body> for BodyCodec {
 }
 
 impl Encoder<&Body> for BodyCodec {
-    type Error = Error;
+    type Error = std::io::Error;
 
     fn encode(&mut self, item: &Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if item.len() > self.max_size {
-            return Err(Error::BodyTooLarge)?;
+            return Err(todo!());
         }
         dst.reserve(item.len() + Body::LENTH_SIZE); // 8 bytes for length
         dst.put_u64_le(item.len() as u64);
@@ -82,7 +83,7 @@ impl Encoder<&Body> for BodyCodec {
 }
 
 impl Encoder<&mut Body> for BodyCodec {
-    type Error = Error;
+    type Error = std::io::Error;
 
     #[inline]
     fn encode(&mut self, item: &mut Body, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -92,7 +93,7 @@ impl Encoder<&mut Body> for BodyCodec {
 
 impl Decoder for BodyCodec {
     type Item = Body;
-    type Error = Error;
+    type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // 8 bytes for length

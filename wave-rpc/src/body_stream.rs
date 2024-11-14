@@ -1,14 +1,17 @@
+#![allow(unused)]
 use crate::message::Message;
 use async_stream::stream;
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{
-    future::BoxFuture,
     stream::{self, BoxStream},
-    SinkExt, Stream, StreamExt, TryStreamExt,
+    AsyncRead, AsyncReadExt, AsyncWrite, SinkExt, Stream, StreamExt, TryStreamExt,
 };
-use tokio::io::AsyncWrite;
-use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
+
+use tokio_util::{
+    codec::{Decoder, Encoder, FramedRead, FramedWrite},
+    compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt},
+};
 
 pub struct Body<'a> {
     stream: BoxStream<'a, Result<Frame, std::io::Error>>,
@@ -101,6 +104,7 @@ impl<'a> From<Bytes> for Body<'a> {
 //     }
 // }
 
+#[derive(Debug, Clone)]
 pub enum Frame {
     End,
     Data(Bytes),
@@ -110,12 +114,12 @@ pub enum Frame {
 impl Message<'_> for Frame {
     type Error = std::io::Error;
     async fn from_reader(
-        io: impl tokio::io::AsyncRead + Send + Unpin,
+        io: impl futures::AsyncRead + Send + Unpin,
     ) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized,
     {
-        let mut framed = FramedRead::new(io, FrameCodec);
+        let mut framed = FramedRead::new(io.compat(), FrameCodec);
         framed.next().await.transpose()
     }
 
@@ -123,7 +127,7 @@ impl Message<'_> for Frame {
         &mut self,
         io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
-        let mut framed = FramedWrite::new(io, FrameCodec);
+        let mut framed = FramedWrite::new(io.compat_write(), FrameCodec);
         framed.send(self.clone()).await?;
         Ok(())
     }

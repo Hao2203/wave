@@ -29,8 +29,11 @@ pub trait Message<'a> {
     ) -> Result<(), Self::Error>;
 }
 
-pub struct Stream<'a, T> {
-    inner: BoxStream<'a, T>,
+pub struct Stream<'a, T>
+where
+    T: Message<'a>,
+{
+    inner: BoxStream<'a, Result<T, T::Error>>,
 }
 
 #[async_trait]
@@ -48,7 +51,7 @@ where
     {
         let stream = stream! {
             while let Some(Ok(item)) = T::from_reader(&mut io).await.transpose() {
-                yield item
+                yield Ok(item)
             }
         };
 
@@ -62,7 +65,7 @@ where
         io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
         while let Some(mut item) = self.inner.next().await {
-            item.write_in(io).await?
+            item?.write_in(io).await?
         }
         Ok(())
     }

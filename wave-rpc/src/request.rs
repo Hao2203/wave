@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::{
     body_stream::Body,
     error::{Error, Result},
@@ -7,7 +8,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{AsyncRead, AsyncReadExt};
 use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
@@ -26,8 +27,7 @@ impl<'a> Request<'a> {
             service_id: S::ID,
             service_version: service_version.into().into(),
         };
-        let body = req.into_body().unwrap();
-        Ok(Self { header, body })
+        todo!()
     }
 
     pub fn header(&self) -> &Header {
@@ -100,10 +100,11 @@ impl Header {
     pub async fn from_reader(reader: &mut (impl AsyncRead + Unpin)) -> Result<Self> {
         let mut header_buf = Header::buffer();
 
-        let _ = reader.read(&mut header_buf).await?;
+        let _ = reader.read(&mut header_buf).await.unwrap();
 
         let header: Header = Header::try_read_from_bytes(&header_buf[..])
-            .map_err(|e| anyhow::anyhow!("Can't parse header from bytes, error: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Can't parse header from bytes, error: {}", e))
+            .unwrap();
 
         Ok(header)
     }
@@ -113,34 +114,11 @@ impl Header {
     }
 }
 
-#[async_trait]
-impl<'a> Message<'a> for Header {
-    type Error = crate::error::Error;
-
-    async fn from_reader(
-        mut io: impl AsyncRead + Send + Unpin + 'a,
-    ) -> Result<Option<Self>, Self::Error>
-    where
-        Self: Sized,
-    {
-        let header = Header::from_reader(&mut io).await;
-        Ok(header.ok())
-    }
-
-    async fn write_in(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error> {
-        io.write_all(self.as_bytes()).await?;
-        Ok(())
-    }
-}
-
 pub(crate) struct HeaderCodec;
 
 impl Decoder for HeaderCodec {
     type Item = Header;
-    type Error = Error;
+    type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.len() < Header::SIZE {
@@ -150,10 +128,7 @@ impl Decoder for HeaderCodec {
         let header = {
             let mut header_buf = Header::buffer();
             src.copy_to_slice(&mut header_buf[..]);
-            *Header::try_ref_from_bytes(&header_buf[..]).map_err(|e| {
-                eprintln!("Can't parse header from bytes, error: {}", e);
-                Error::ParseHeaderFromBytesFailed
-            })?
+            *Header::try_ref_from_bytes(&header_buf[..]).unwrap()
         };
 
         Ok(Some(header))
@@ -161,7 +136,7 @@ impl Decoder for HeaderCodec {
 }
 
 impl Encoder<Header> for HeaderCodec {
-    type Error = Error;
+    type Error = std::io::Error;
 
     fn encode(&mut self, item: Header, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let header_bytes = item.as_bytes();
@@ -172,7 +147,7 @@ impl Encoder<Header> for HeaderCodec {
 }
 
 impl Encoder<&Header> for HeaderCodec {
-    type Error = Error;
+    type Error = std::io::Error;
 
     fn encode(&mut self, item: &Header, dst: &mut BytesMut) -> Result<(), Self::Error> {
         self.encode(*item, dst)
