@@ -122,13 +122,15 @@ impl<'a> Message<'a> for Frame {
         framed.next().await.unwrap()
     }
 
-    async fn write_in(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error> {
-        let mut framed = FramedWrite::new(io.compat_write(), FrameCodec);
-        framed.send(self.clone()).await?;
-        Ok(())
+    fn write_in<'b>(
+        &'b mut self,
+        io: &'b mut (dyn AsyncWrite + Send + Unpin),
+    ) -> futures::future::BoxFuture<'b, Result<(), Self::Error>> {
+        Box::pin(async {
+            let mut framed = FramedWrite::new(io.compat_write(), FrameCodec);
+            framed.send(self.clone()).await?;
+            Ok(())
+        })
     }
 }
 
