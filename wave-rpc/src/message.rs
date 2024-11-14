@@ -31,21 +31,19 @@ pub trait Message<'a> {
     ) -> Result<(), Self::Error>;
 }
 
-pub struct Stream<T> {
-    reader: Box<dyn AsyncRead + Send + Unpin>,
+pub struct Stream<'a, T> {
+    reader: Box<dyn AsyncRead + Send + Unpin + 'a>,
     _marker: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<T, E> Message<'static> for Stream<T>
+impl<'a, T, E> Message<'a> for Stream<'a, T>
 where
     T: Send + for<'b> Message<'b, Error = E>,
     E: core::error::Error + Send,
 {
     type Error = E;
 
-    async fn from_reader(
-        mut io: impl AsyncRead + Send + Unpin + 'static,
-    ) -> Result<Self, Self::Error>
+    async fn from_reader(mut io: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -66,7 +64,7 @@ where
     }
 }
 
-impl<T, E> stream::Stream for Stream<T>
+impl<'a, T, E> stream::Stream for Stream<'a, T>
 where
     T: Send + for<'b> Message<'b, Error = E>,
 {

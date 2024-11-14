@@ -110,17 +110,16 @@ pub enum Frame {
     Data(Bytes),
 }
 
-#[async_trait]
-impl Message<'_> for Frame {
+impl<'a> Message<'a> for Frame {
     type Error = std::io::Error;
     async fn from_reader(
-        io: impl futures::AsyncRead + Send + Unpin,
-    ) -> Result<Option<Self>, Self::Error>
+        io: impl futures::AsyncRead + Send + Unpin + 'a,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
         let mut framed = FramedRead::new(io.compat(), FrameCodec);
-        framed.next().await.transpose()
+        framed.next().await.unwrap()
     }
 
     async fn write_in(
