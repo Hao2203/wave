@@ -1,121 +1,69 @@
-use std::{
-    pin::{pin, Pin},
-    task::{Context, Poll},
-};
-
+#![allow(unused)]
 use async_stream::stream;
+use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{
     future::BoxFuture,
     ready,
     stream::{self, BoxStream},
-    StreamExt,
+    AsyncRead, AsyncWrite, StreamExt,
 };
-use tokio::io::AsyncRead;
+use std::{
+    pin::{pin, Pin},
+    task::{Context, Poll},
+};
 
+#[async_trait]
 pub trait Message<'a> {
     type Error: core::error::Error + Send;
 
-    fn from_reader(
+    async fn from_reader(
         io: impl AsyncRead + Send + Unpin + 'a,
-    ) -> BoxFuture<'a, Result<Option<Self>, Self::Error>>
+    ) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized;
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Self::Error>>>;
-
-    fn to_stream(&'a mut self) -> MsgStream<'a, Self>
-    where
-        Self: Unpin,
-    {
-        MsgStream(self)
-    }
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error>;
 }
 
 pub struct Stream<'a, T> {
     inner: BoxStream<'a, T>,
 }
 
+#[async_trait]
 impl<'a, T> Message<'a> for Stream<'a, T>
 where
     T: Send + for<'b> Message<'b> + 'a,
 {
     type Error = <T as Message<'a>>::Error;
 
-    fn from_reader(
+    async fn from_reader(
         mut io: impl AsyncRead + Send + Unpin + 'a,
-    ) -> BoxFuture<'a, Result<Option<Self>, Self::Error>>
+    ) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized,
     {
         let stream = stream! {
-            while let Ok(Some(item)) = T::from_reader(&mut io).await {
+            while let Some(Ok(item)) = T::from_reader(&mut io).await.transpose() {
                 yield item
             }
         };
-        Box::pin(async move {
-            Ok(Some(Stream {
-                inner: stream.boxed(),
-            }))
-        })
+
+        Ok(Some(Stream {
+            inner: stream.boxed(),
+        }))
     }
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Self::Error>>> {
-        let poll = self.get_mut().inner.poll_next_unpin(cx);
-
-        let res = ready!(poll).map(|item| {
-            let item = pin!(item);
-            item.poll_next(cx)
-        });
-
-        match res {
-            Some(res) => res,
-            None => Poll::Ready(None),
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        while let Some(mut item) = self.inner.next().await {
+            item.write_in(io).await?
         }
-    }
-}
-
-impl<'a, T> Message<'a> for Pin<Box<T>>
-where
-    T: Message<'a>,
-{
-    type Error = T::Error;
-    fn from_reader(
-        io: impl AsyncRead + Send + Unpin + 'a,
-    ) -> BoxFuture<'a, Result<Option<Self>, Self::Error>>
-    where
-        Self: Sized,
-    {
-        let fut = async move {
-            let item = T::from_reader(io).await?;
-            Ok(item.map(Box::pin))
-        };
-        Box::pin(fut)
-    }
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Self::Error>>> {
-        self.get_mut().as_mut().poll_next(cx)
-    }
-}
-
-pub(crate) struct MsgStream<'a, T: ?Sized>(&'a mut T);
-
-impl<'a, T> stream::Stream for MsgStream<'a, T>
-where
-    T: Message<'a> + Unpin,
-{
-    type Item = Result<Bytes, T::Error>;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let item = &mut self.get_mut().0;
-        <T as Message>::poll_next(Pin::new(item), cx)
+        Ok(())
     }
 }
