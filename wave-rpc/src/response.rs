@@ -22,7 +22,7 @@ impl<'a> Response<'a> {
         Self::new(0, body)
     }
 
-    pub fn body(&self) -> &Body {
+    pub fn body(&self) -> &Body<'a> {
         &self.body
     }
 

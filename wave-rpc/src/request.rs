@@ -42,7 +42,7 @@ impl<'a> Request<'a> {
         Version::from(self.header.service_version)
     }
 
-    pub fn body(&self) -> &Body {
+    pub fn body(&self) -> &Body<'a> {
         &self.body
     }
 
@@ -54,33 +54,6 @@ impl<'a> Request<'a> {
         self.body
     }
 }
-
-// impl<'a> Transport for Request<'a> {
-//     type Error = crate::error::Error;
-
-//     async fn from_reader(
-//         mut io: impl AsyncRead + Send + Sync + Unpin,
-//     ) -> Result<Option<Self>, Self::Error>
-//     where
-//         Self: Sized,
-//     {
-//         let header = Header::from_reader(&mut io).await?;
-//         let req = Body::from_reader(io)
-//             .await?
-//             .map(|body| Request { header, body });
-
-//         Ok(req)
-//     }
-
-//     async fn write_into(
-//         &mut self,
-//         mut io: impl AsyncWrite + Send + Unpin,
-//     ) -> Result<(), Self::Error> {
-//         self.header.write_into(&mut io).await?;
-//         self.body.write_into(&mut io).await?;
-//         Ok(())
-//     }
-// }
 
 #[derive(Debug, Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
