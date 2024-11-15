@@ -1,6 +1,5 @@
 use super::Message;
 use futures::{
-    future::BoxFuture,
     pin_mut,
     stream::{self, BoxStream},
     AsyncRead, AsyncWrite, StreamExt,
@@ -34,16 +33,14 @@ where
         })
     }
 
-    fn write_in<'b>(
-        &'b mut self,
-        io: &'b mut (dyn AsyncWrite + Send + Unpin),
-    ) -> BoxFuture<'b, Result<(), Self::Error>> {
-        Box::pin(async {
-            while let Some(item) = self.stream.next().await {
-                item.unwrap().write_in(io).await.unwrap();
-            }
-            Ok(())
-        })
+    async fn write_in(
+        &mut self,
+        mut io: impl AsyncWrite + Send + Unpin,
+    ) -> Result<(), Self::Error> {
+        while let Some(item) = self.stream.next().await {
+            item.unwrap().write_in(&mut io).await.unwrap();
+        }
+        Ok(())
     }
 }
 

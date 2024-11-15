@@ -1,13 +1,20 @@
 #![allow(unused)]
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::{fmt::Display, future::Future};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-pub trait Service {
+pub trait ServiceDef {
     type Request<'a>;
     type Response<'a>;
 
     const ID: u32;
+}
+
+pub trait Service<Req> {
+    type Response;
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    fn call(&self, req: Req) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send;
 }
 
 #[derive(

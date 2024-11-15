@@ -1,7 +1,7 @@
-use super::{Result, RpcHandler};
-use crate::{error::Code, message::Message, service::Version, Body, Request, Response, Service};
+use super::Result;
+use crate::{message::Message, service::Version, Body, Request, Response, ServiceDef};
 use async_trait::async_trait;
-use std::{collections::BTreeMap, future::Future, ops::AsyncFn};
+use std::{collections::BTreeMap, future::Future, ops::AsyncFn, sync::Arc};
 
 pub struct RpcService<'a, S> {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync + 'a>>,
@@ -51,9 +51,9 @@ impl<'a, State> RpcService<'a, State> {
     ) -> Self
     where
         State: Sync + 'a,
-        S: Service + Send + Sync + 'static,
-        <S as Service>::Request: Message + Send,
-        <S as Service>::Response: Message + Send,
+        S: ServiceDef + Send + Sync + 'static,
+        <S as ServiceDef>::Request: Message + Send,
+        <S as ServiceDef>::Response: Message + Send,
     {
         let id = S::ID;
         let key = ServiceKey::new(id, self.version);
@@ -119,19 +119,19 @@ where
     }
 }
 
-struct FnHandler<'a, State, F, Req, Resp> {
+struct FnHandler<State, F, Req, Resp> {
     f: F,
-    state: &'a State,
+    state: Arc<State>,
     _service: std::marker::PhantomData<fn() -> (Req, Resp)>,
 }
 
 #[async_trait]
-impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<'a, State, F, Req, Resp>
+impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
 where
     State: Sync + 'a,
     F: Handle<&'a State, Req, Response = Resp> + Sync,
-    Req: Message + Send,
-    Resp: Message + Send,
+    Req: Message<'a> + Send,
+    Resp: Message<'a> + Send,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
         let body = req.body_mut();
@@ -158,6 +158,41 @@ where
     type Response = Resp;
     async fn call(&self, state: State, req: Req) -> Resp {
         (self)(state, req).await
+    }
+}
+
+#[async_trait]
+pub trait RpcHandler {
+    async fn call(&self, req: &mut Request) -> Result<Response>;
+}
+
+#[async_trait]
+impl<T> RpcHandler for &T
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
+    }
+}
+
+#[async_trait]
+impl<T> RpcHandler for &mut T
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
+    }
+}
+
+#[async_trait]
+impl<T> RpcHandler for Box<T>
+where
+    T: RpcHandler + Send + Sync,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        <Self as RpcHandler>::call(self, req).await
     }
 }
 

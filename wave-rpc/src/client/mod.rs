@@ -1,6 +1,6 @@
 use crate::{
     body::BodyCodec, error::Error, message::Message, request::RequestEncoder,
-    response::ResponseDecoder, service::Version, Request, Response, Service,
+    response::ResponseDecoder, service::Version, Request, Response, ServiceDef,
 };
 use error::{ClientError, Result};
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
@@ -87,9 +87,9 @@ impl<'a> Client<'a> {
         req: <S::Request as Message>::Inner,
     ) -> Result<<S::Response as Message>::Inner>
     where
-        S: Service,
-        <S as Service>::Request: Message + Send,
-        <S as Service>::Response: Message + Send,
+        S: ServiceDef,
+        <S as ServiceDef>::Request: Message + Send,
+        <S as ServiceDef>::Response: Message + Send,
     {
         let req = Request::new::<S>(req, self.service_version)?;
 

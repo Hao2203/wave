@@ -21,6 +21,7 @@ bytes = { version = "1.7" }
 futures = { workspace = true }
 async-trait = { workspace = true }
 async-stream = { workspace = true }
+pin-project = { version = "1.1" }
 
 serde_bytes = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

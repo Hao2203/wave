@@ -4,7 +4,7 @@ use crate::{
     error::{Error, Result},
     message::Message,
     service::Version,
-    Service,
+    ServiceDef,
 };
 use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
@@ -20,7 +20,7 @@ pub struct Request<'a> {
 impl<'a> Request<'a> {
     pub fn new<S>(req: S::Request<'a>, service_version: impl Into<Version>) -> Result<Self>
     where
-        S: Service,
+        S: ServiceDef,
         S::Request<'a>: Message<'a>,
     {
         let header = Header {

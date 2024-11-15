@@ -20,4 +20,4 @@ pub mod message;
 pub use body_stream::Body;
 pub use request::Request;
 pub use response::Response;
-pub use service::Service;
+pub use service::ServiceDef;
