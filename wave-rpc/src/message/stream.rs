@@ -1,4 +1,5 @@
-use super::Message;
+use super::{FromReader, WriteIn};
+use derive_more::derive::Display;
 use futures::{
     future::BoxFuture,
     pin_mut,
@@ -13,15 +14,14 @@ use std::{
 
 pub struct Stream<'a, T>
 where
-    T: Send + Message<'a>,
+    T: Send,
 {
     stream: StreamInner<'a, T>,
 }
 
-impl<'a, T, E> Message<'a> for Stream<'a, T>
+impl<'a, T> FromReader<'a> for Stream<'a, T>
 where
-    T: Send + for<'b> Message<'b, Error = E> + 'a,
-    E: core::error::Error + Send + 'a,
+    T: Send,
 {
     type Error = std::io::Error;
 
@@ -29,12 +29,19 @@ where
     where
         Self: Sized,
     {
-        Ok(Self {
+        Ok(Stream {
             stream: StreamInner::Reader(Box::new(reader)),
         })
     }
+}
 
-    fn write_in(
+impl<T> WriteIn for Stream<'_, T>
+where
+    T: Send + WriteIn + for<'a> FromReader<'a>,
+{
+    type Error = std::io::Error;
+
+    fn write_in<'a>(
         &'a mut self,
         io: &'a mut (dyn AsyncWrite + Send + Unpin),
     ) -> BoxFuture<'a, Result<(), Self::Error>> {
@@ -47,18 +54,20 @@ where
     }
 }
 
-impl<'a, T, E> stream::Stream for StreamInner<'a, T>
+impl<'a, T> stream::Stream for StreamInner<'a, T>
 where
-    T: Send + for<'b> Message<'b, Error = E>,
+    T: Send + for<'b> FromReader<'b>,
 {
-    type Item = Result<T, E>;
+    type Item = Result<T, Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             Self::Reader(reader) => {
                 let io = reader;
                 let fut = async move {
-                    let item = T::from_reader(io).await;
+                    let item = T::from_reader(io)
+                        .await
+                        .map_err(|_| Error::Io(std::io::ErrorKind::BrokenPipe.into()));
                     Some(item)
                 };
                 pin_mut!(fut);
@@ -69,10 +78,13 @@ where
     }
 }
 
-pub enum StreamInner<'a, T>
-where
-    T: Send + Message<'a>,
-{
+pub enum StreamInner<'a, T> {
     Reader(Box<dyn AsyncRead + Send + Unpin + 'a>),
-    Stream(BoxStream<'a, Result<T, T::Error>>),
+    Stream(BoxStream<'a, Result<T, Error>>),
+}
+
+#[derive(Debug, Display, derive_more::Error)]
+pub enum Error {
+    #[error(ignore)]
+    Io(std::io::Error),
 }

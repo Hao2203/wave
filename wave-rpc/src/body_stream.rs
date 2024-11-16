@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::{error::Error, message::Message};
+use crate::error::Error;
 use async_stream::stream;
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -13,14 +13,14 @@ use tokio_util::{
     compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt},
 };
 
-pub struct Body<'a> {
-    message: Box<dyn Message<'a, Error = Error> + 'a>,
-}
+// pub struct Body<'a> {
+//     message: Box<dyn Message<'a, Error = Error> + 'a>,
+// }
 
-impl<'a> Body<'a> {
-    pub fn new(message: impl Message<'a, Error: Into<Error>> + Send + 'a) -> Self {
-        Self {
-            message: message.into_boxed(),
-        }
-    }
-}
+// impl<'a> Body<'a> {
+//     pub fn new(message: impl Message<'a, Error: Into<Error>> + Send + 'a) -> Self {
+//         Self {
+//             message: message.into_boxed(),
+//         }
+//     }
+// }

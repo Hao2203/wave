@@ -1,34 +1,36 @@
 #![allow(unused)]
 use crate::{
-    body_stream::Body,
     error::{Error, Result},
-    message::Message,
+    message::{FromReader, WriteIn},
     service::Version,
     ServiceDef,
 };
 use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
-use futures::{AsyncRead, AsyncReadExt};
-use tokio_util::codec::{Decoder, Encoder};
+use futures::{future::BoxFuture, AsyncRead, AsyncReadExt, AsyncWriteExt, StreamExt};
+use tokio_util::{
+    codec::{Decoder, Encoder, Framed, FramedRead},
+    compat::FuturesAsyncReadCompatExt,
+};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
-pub struct Request<'a> {
+pub struct Request<T> {
     pub header: Header,
-    pub body: Body<'a>,
+    pub body: T,
 }
 
-impl<'a> Request<'a> {
-    pub fn new<S>(req: S::Request<'a>, service_version: impl Into<Version>) -> Result<Self>
-    where
-        S: ServiceDef,
-        S::Request<'a>: Message<'a>,
-    {
-        let header = Header {
-            service_id: S::ID,
-            service_version: service_version.into().into(),
-        };
-        todo!()
-    }
+impl<T> Request<T> {
+    // pub fn new<S>(req: S::Request<'a>, service_version: impl Into<Version>) -> Result<Self>
+    // where
+    //     S: ServiceDef,
+    //     S::Request<'a>: FromReader<'a>,
+    // {
+    //     let header = Header {
+    //         service_id: S::ID,
+    //         service_version: service_version.into().into(),
+    //     };
+    //     todo!()
+    // }
 
     pub fn header(&self) -> &Header {
         &self.header
@@ -41,17 +43,24 @@ impl<'a> Request<'a> {
     pub fn service_version(&self) -> Version {
         Version::from(self.header.service_version)
     }
+}
 
-    pub fn body(&self) -> &Body<'a> {
-        &self.body
-    }
+impl<T> WriteIn for Request<T>
+where
+    T: WriteIn + Send,
+{
+    type Error = std::io::Error;
 
-    pub fn body_mut(&mut self) -> &mut Body<'a> {
-        &mut self.body
-    }
-
-    pub fn into_body(self) -> Body<'a> {
-        self.body
+    fn write_in<'a>(
+        &'a mut self,
+        io: &'a mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> BoxFuture<'a, std::result::Result<(), Self::Error>> {
+        let fut = async move {
+            self.header.write_in(io).await?;
+            self.body.write_in(io).await.unwrap();
+            Ok(())
+        };
+        Box::pin(fut)
     }
 }
 
@@ -82,6 +91,7 @@ impl Header {
         Ok(header)
     }
 
+    #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         <Self as IntoBytes>::as_bytes(self)
     }
@@ -108,21 +118,28 @@ impl Decoder for HeaderCodec {
     }
 }
 
-impl Encoder<Header> for HeaderCodec {
+impl FromReader<'_> for Header {
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: Header, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let header_bytes = item.as_bytes();
-        dst.reserve(header_bytes.len());
-        dst.extend_from_slice(header_bytes);
-        Ok(())
+    async fn from_reader(reader: impl AsyncRead + Unpin) -> Result<Self, Self::Error> {
+        let mut framed = FramedRead::new(reader.compat(), HeaderCodec);
+        framed
+            .next()
+            .await
+            .ok_or(std::io::ErrorKind::UnexpectedEof)?
     }
 }
 
-impl Encoder<&Header> for HeaderCodec {
+impl WriteIn for Header {
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: &Header, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        self.encode(*item, dst)
+    fn write_in<'a>(
+        &'a mut self,
+        io: &'a mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> futures::future::BoxFuture<'a, std::result::Result<(), Self::Error>> {
+        Box::pin(async move {
+            let header_bytes = self.as_bytes();
+            io.write_all(header_bytes).await
+        })
     }
 }
