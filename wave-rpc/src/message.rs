@@ -1,27 +1,28 @@
-use futures::{future::BoxFuture, io::AsyncReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
-use std::future::Future;
+use async_trait::async_trait;
+use futures::{io::AsyncReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
 
 pub mod stream;
 
+#[async_trait]
 pub trait FromReader<'a> {
     type Error: core::error::Error + Send;
 
-    fn from_reader(
-        reader: impl AsyncRead + Send + Unpin + 'a,
-    ) -> impl Future<Output = Result<Self, Self::Error>> + Send
+    async fn from_reader(reader: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }
 
+#[async_trait]
 pub trait WriteIn {
     type Error: core::error::Error + Send;
 
-    fn write_in<'a>(
-        &'a mut self,
-        io: &'a mut (dyn AsyncWrite + Send + Unpin),
-    ) -> BoxFuture<'a, Result<(), Self::Error>>;
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error>;
 }
 
+#[async_trait]
 impl FromReader<'_> for String {
     type Error = std::io::Error;
 
@@ -35,16 +36,15 @@ impl FromReader<'_> for String {
     }
 }
 
+#[async_trait]
 impl WriteIn for String {
     type Error = std::io::Error;
 
-    fn write_in<'a>(
-        &'a mut self,
-        io: &'a mut (dyn AsyncWrite + Send + Unpin),
-    ) -> BoxFuture<'a, Result<(), Self::Error>> {
-        Box::pin(async move {
-            io.write_all(self.as_bytes()).await?;
-            Ok(())
-        })
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        io.write_all(self.as_bytes()).await?;
+        Ok(())
     }
 }

@@ -21,6 +21,7 @@ impl Error {
     }
 }
 
+#[async_trait::async_trait]
 impl FromReader<'_> for Error {
     type Error = Self;
 

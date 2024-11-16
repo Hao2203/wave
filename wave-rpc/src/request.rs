@@ -45,22 +45,41 @@ impl<T> Request<T> {
     }
 }
 
+#[async_trait]
+impl<'a, T> FromReader<'a> for Request<T>
+where
+    T: FromReader<'a> + Send,
+{
+    type Error = std::io::Error;
+
+    async fn from_reader(
+        mut reader: impl AsyncRead + Send + Unpin + 'a,
+    ) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let header = Header::from_reader(&mut reader).await?;
+        let body = T::from_reader(reader)
+            .await
+            .map_err(|e| std::io::ErrorKind::InvalidData)?;
+        Ok(Self { header, body })
+    }
+}
+
+#[async_trait]
 impl<T> WriteIn for Request<T>
 where
     T: WriteIn + Send,
 {
     type Error = std::io::Error;
 
-    fn write_in<'a>(
-        &'a mut self,
-        io: &'a mut (dyn futures::AsyncWrite + Send + Unpin),
-    ) -> BoxFuture<'a, std::result::Result<(), Self::Error>> {
-        let fut = async move {
-            self.header.write_in(io).await?;
-            self.body.write_in(io).await.unwrap();
-            Ok(())
-        };
-        Box::pin(fut)
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> std::result::Result<(), Self::Error> {
+        self.header.write_in(io).await?;
+        self.body.write_in(io).await.unwrap();
+        Ok(())
     }
 }
 
@@ -83,10 +102,11 @@ impl Header {
 
 pub(crate) struct HeaderCodec;
 
+#[async_trait]
 impl FromReader<'_> for Header {
     type Error = std::io::Error;
 
-    async fn from_reader(mut reader: impl AsyncRead + Unpin) -> Result<Self, Self::Error> {
+    async fn from_reader(mut reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error> {
         let mut header_buf = Header::BUFFER;
 
         reader.read_exact(&mut header_buf).await?;
@@ -98,16 +118,15 @@ impl FromReader<'_> for Header {
     }
 }
 
+#[async_trait]
 impl WriteIn for Header {
     type Error = std::io::Error;
 
-    fn write_in<'a>(
-        &'a mut self,
-        io: &'a mut (dyn futures::AsyncWrite + Send + Unpin),
-    ) -> futures::future::BoxFuture<'a, std::result::Result<(), Self::Error>> {
-        Box::pin(async move {
-            let header_bytes = self.as_bytes();
-            io.write_all(header_bytes).await
-        })
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> std::result::Result<(), Self::Error> {
+        let header_bytes = self.as_bytes();
+        io.write_all(header_bytes).await
     }
 }

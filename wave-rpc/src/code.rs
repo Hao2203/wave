@@ -1,4 +1,5 @@
 use crate::message::{FromReader, WriteIn};
+use async_trait::async_trait;
 use derive_more::derive::Display;
 use futures::{io::AsyncReadExt, AsyncWriteExt};
 use zerocopy::{Immutable, IntoBytes, TryFromBytes};
@@ -26,10 +27,13 @@ impl Code {
     const BUFFER: [u8; Self::SIZE] = [0u8; Self::SIZE];
 }
 
+#[async_trait::async_trait]
 impl FromReader<'_> for Code {
     type Error = std::io::Error;
 
-    async fn from_reader(mut reader: impl futures::AsyncRead + Unpin) -> Result<Self, Self::Error> {
+    async fn from_reader(
+        mut reader: impl futures::AsyncRead + Send + Unpin,
+    ) -> Result<Self, Self::Error> {
         let mut buf = Code::BUFFER;
         reader.read_exact(&mut buf).await?;
         let code = Code::try_read_from_bytes(&buf).map_err(|_| std::io::ErrorKind::InvalidData)?;
@@ -37,16 +41,14 @@ impl FromReader<'_> for Code {
     }
 }
 
+#[async_trait]
 impl WriteIn for Code {
     type Error = std::io::Error;
-    fn write_in<'a>(
-        &'a mut self,
-        io: &'a mut (dyn futures::AsyncWrite + Send + Unpin),
-    ) -> futures::future::BoxFuture<'a, Result<(), Self::Error>> {
-        let fut = async move {
-            io.write_all(self.as_bytes()).await?;
-            Ok(())
-        };
-        Box::pin(fut)
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        io.write_all(self.as_bytes()).await?;
+        Ok(())
     }
 }

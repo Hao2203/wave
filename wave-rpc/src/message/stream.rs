@@ -1,7 +1,7 @@
 use super::{FromReader, WriteIn};
+use async_trait::async_trait;
 use derive_more::derive::Display;
 use futures::{
-    future::BoxFuture,
     pin_mut,
     stream::{self, BoxStream},
     AsyncRead, AsyncWrite, StreamExt,
@@ -19,6 +19,7 @@ where
     stream: StreamInner<'a, T>,
 }
 
+#[async_trait::async_trait]
 impl<'a, T> FromReader<'a> for Stream<'a, T>
 where
     T: Send,
@@ -35,22 +36,21 @@ where
     }
 }
 
+#[async_trait]
 impl<T> WriteIn for Stream<'_, T>
 where
     T: Send + WriteIn + for<'a> FromReader<'a>,
 {
     type Error = std::io::Error;
 
-    fn write_in<'a>(
-        &'a mut self,
-        io: &'a mut (dyn AsyncWrite + Send + Unpin),
-    ) -> BoxFuture<'a, Result<(), Self::Error>> {
-        Box::pin(async move {
-            while let Some(item) = self.stream.next().await {
-                item.unwrap().write_in(io).await.unwrap();
-            }
-            Ok(())
-        })
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        while let Some(item) = self.stream.next().await {
+            item.unwrap().write_in(io).await.unwrap();
+        }
+        Ok(())
     }
 }
 
