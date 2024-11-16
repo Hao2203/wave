@@ -1,4 +1,4 @@
-use futures::{future::BoxFuture, AsyncRead, AsyncWrite};
+use futures::{future::BoxFuture, io::AsyncReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
 use std::future::Future;
 
 pub mod stream;
@@ -22,68 +22,29 @@ pub trait WriteIn {
     ) -> BoxFuture<'a, Result<(), Self::Error>>;
 }
 
-// pub trait Message<'a> {
-//     type Error: core::error::Error + Send;
+impl FromReader<'_> for String {
+    type Error = std::io::Error;
 
-//     fn from_reader(
-//         reader: impl AsyncRead + Send + Unpin + 'a,
-//     ) -> impl Future<Output = Result<Self, Self::Error>> + Send
-//     where
-//         Self: Sized;
+    async fn from_reader(mut reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await?;
+        String::from_utf8(buf).map_err(|_| std::io::ErrorKind::InvalidData.into())
+    }
+}
 
-//     fn write_in(
-//         &'a mut self,
-//         io: &'a mut (dyn AsyncWrite + Send + Unpin),
-//     ) -> BoxFuture<'a, Result<(), Self::Error>>;
+impl WriteIn for String {
+    type Error = std::io::Error;
 
-//     fn into_boxed(self) -> Box<dyn Message<'a, Error = error::Error> + Send + 'a>
-//     where
-//         Self: Sized + Send + 'a,
-//         Self::Error: Into<error::Error>,
-//     {
-//         Box::new(BoxMessage(self))
-//     }
-// }
-
-// pub struct BoxMessage<T>(pub T);
-
-// impl<'a, T, E> Message<'a> for BoxMessage<T>
-// where
-//     T: Message<'a, Error = E> + Send,
-//     E: Into<error::Error> + core::error::Error + Send,
-// {
-//     type Error = error::Error;
-
-//     fn from_reader(
-//         reader: impl AsyncRead + Send + Unpin + 'a,
-//     ) -> impl Future<Output = Result<Self, Self::Error>> + Send
-//     where
-//         Self: Sized,
-//     {
-//         BoxMessageFut(T::from_reader(reader))
-//     }
-
-//     fn write_in(
-//         &'a mut self,
-//         io: &'a mut (dyn AsyncWrite + Send + Unpin),
-//     ) -> BoxFuture<'a, Result<(), Self::Error>> {
-//         Box::pin(async move { self.0.write_in(io).await.map_err(Into::into) })
-//     }
-// }
-
-// #[pin_project]
-// pub struct BoxMessageFut<T>(#[pin] pub T);
-
-// impl<'a, Fut, T, E> Future for BoxMessageFut<Fut>
-// where
-//     Fut: Future<Output = Result<T, E>>,
-//     E: Into<error::Error>,
-// {
-//     type Output = Result<BoxMessage<T>, error::Error>;
-
-//     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-//         let this = self.as_mut().project();
-//         let res = this.0.poll(cx).map_err(Into::into);
-//         res.map(|r| r.map(BoxMessage))
-//     }
-// }
+    fn write_in<'a>(
+        &'a mut self,
+        io: &'a mut (dyn AsyncWrite + Send + Unpin),
+    ) -> BoxFuture<'a, Result<(), Self::Error>> {
+        Box::pin(async move {
+            io.write_all(self.as_bytes()).await?;
+            Ok(())
+        })
+    }
+}

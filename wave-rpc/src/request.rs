@@ -73,23 +73,7 @@ pub struct Header {
 
 impl Header {
     pub const SIZE: usize = 8;
-
-    #[inline]
-    pub fn buffer() -> [u8; Self::SIZE] {
-        [0u8; Self::SIZE]
-    }
-
-    pub async fn from_reader(reader: &mut (impl AsyncRead + Unpin)) -> Result<Self> {
-        let mut header_buf = Header::buffer();
-
-        let _ = reader.read(&mut header_buf).await.unwrap();
-
-        let header: Header = Header::try_read_from_bytes(&header_buf[..])
-            .map_err(|e| anyhow::anyhow!("Can't parse header from bytes, error: {}", e))
-            .unwrap();
-
-        Ok(header)
-    }
+    const BUFFER: [u8; Self::SIZE] = [0u8; Self::SIZE];
 
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
@@ -99,34 +83,18 @@ impl Header {
 
 pub(crate) struct HeaderCodec;
 
-impl Decoder for HeaderCodec {
-    type Item = Header;
-    type Error = std::io::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < Header::SIZE {
-            return Ok(None);
-        }
-
-        let header = {
-            let mut header_buf = Header::buffer();
-            src.copy_to_slice(&mut header_buf[..]);
-            *Header::try_ref_from_bytes(&header_buf[..]).unwrap()
-        };
-
-        Ok(Some(header))
-    }
-}
-
 impl FromReader<'_> for Header {
     type Error = std::io::Error;
 
-    async fn from_reader(reader: impl AsyncRead + Unpin) -> Result<Self, Self::Error> {
-        let mut framed = FramedRead::new(reader.compat(), HeaderCodec);
-        framed
-            .next()
-            .await
-            .ok_or(std::io::ErrorKind::UnexpectedEof)?
+    async fn from_reader(mut reader: impl AsyncRead + Unpin) -> Result<Self, Self::Error> {
+        let mut header_buf = Header::BUFFER;
+
+        reader.read_exact(&mut header_buf).await?;
+
+        let header: Header = Header::try_read_from_bytes(&header_buf)
+            .map_err(|e| std::io::ErrorKind::InvalidData)?;
+
+        Ok(header)
     }
 }
 

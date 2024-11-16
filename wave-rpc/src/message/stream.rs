@@ -54,7 +54,7 @@ where
     }
 }
 
-impl<'a, T> stream::Stream for StreamInner<'a, T>
+impl<T> stream::Stream for StreamInner<'_, T>
 where
     T: Send + for<'b> FromReader<'b>,
 {

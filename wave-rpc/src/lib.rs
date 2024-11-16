@@ -3,11 +3,8 @@
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_traits)]
 
-pub mod body;
-mod body_stream;
 // pub mod client;
 pub mod error;
-// pub mod message;
 pub mod request;
 pub mod response;
 // pub mod server;
@@ -17,6 +14,4 @@ pub mod service;
 pub mod code;
 pub mod message;
 
-pub use request::Request;
-pub use response::Response;
 pub use service::ServiceDef;
