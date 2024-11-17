@@ -4,8 +4,8 @@ use std::{fmt::Display, future::Future};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub trait ServiceDef {
-    type Request<'a>;
-    type Response<'a>;
+    type Request;
+    type Response;
 
     const ID: u32;
 }

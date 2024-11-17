@@ -1,13 +1,17 @@
+#![allow(unused)]
 use crate::{
-    error::Result, message::Message, request::Request, response::Response, service::Service,
+    error::Result,
+    message::{FromReader, WriteIn},
+    request::Request,
+    response::Response,
+    service::Service,
 };
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
-pub use service::RpcService;
 use std::sync::Arc;
 use tracing::{instrument, trace, Level};
 
-pub mod service;
+// pub mod service
 
 pub struct RpcServer {
     max_body_size: usize,
@@ -25,8 +29,8 @@ impl RpcServer {
         mut io: (impl AsyncRead + AsyncWrite + Send + Unpin),
     ) -> Result<()>
     where
-        Req: for<'b> Message<'b>,
-        Resp: for<'b> Message<'b>,
+        Req: for<'b> FromReader<'b>,
+        Resp: WriteIn,
     {
         let req = Req::from_reader(&mut io).await.unwrap();
         let mut resp = service.call(req).await.unwrap();

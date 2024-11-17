@@ -1,45 +1,53 @@
 #![allow(unused)]
-use crate::error::{Error, Result};
+use async_trait::async_trait;
+use futures::AsyncRead;
+
+use crate::{
+    code::Code,
+    error::{Error, Result},
+    message::{FromReader, WriteIn},
+};
 
 pub struct Response<T> {
-    code: u16,
+    code: Code,
     body: T,
 }
 
 impl<T> Response<T> {
-    pub const CODE_SIZE: usize = 2;
-    pub const SUCCESS_CODE: u16 = 0;
-
     pub fn is_success(&self) -> bool {
-        self.code == Self::SUCCESS_CODE
-    }
-
-    pub fn code(&self) -> u16 {
-        self.code
+        self.code == Code::Ok
     }
 }
 
-// impl<'a> Transport for Response<'a> {
-//     type Error = Error;
+#[async_trait]
+impl<'a, T> FromReader<'a> for Response<T>
+where
+    T: FromReader<'a>,
+{
+    type Error = Error;
 
-//     async fn from_reader(
-//         mut reader: impl AsyncRead + Send + Sync + Unpin + 'a,
-//     ) -> Result<Option<Self>, Self::Error>
-//     where
-//         Self: Sized,
-//     {
-//         let code = reader.read_u16_le().await?;
-//         let body = Body::from_reader(reader).await?;
-//         let resp = body.map(|body| Response::new(code, body));
-//         Ok(resp)
-//     }
+    async fn from_reader(
+        mut reader: impl AsyncRead + Send + Unpin + 'a,
+    ) -> Result<Self, Self::Error> {
+        let code = Code::from_reader(&mut reader).await?;
+        let body = T::from_reader(reader).await.unwrap();
+        Ok(Response { code, body })
+    }
+}
 
-//     async fn write_into(
-//         &mut self,
-//         mut io: impl AsyncWrite + Send + Unpin,
-//     ) -> Result<(), Self::Error> {
-//         io.write_u16_le(self.code).await?;
-//         self.body.write_into(io).await?;
-//         Ok(())
-//     }
-// }
+#[async_trait]
+impl<T> WriteIn for Response<T>
+where
+    T: WriteIn + Send,
+{
+    type Error = Error;
+
+    async fn write_in(
+        &mut self,
+        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> std::result::Result<(), Self::Error> {
+        self.code.write_in(io).await?;
+        self.body.write_in(io).await.unwrap();
+        Ok(())
+    }
+}

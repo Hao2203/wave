@@ -1,4 +1,6 @@
 #![allow(unused)]
+use std::convert::Infallible;
+
 use crate::{
     error::{Error, Result},
     message::{FromReader, WriteIn},
@@ -130,3 +132,18 @@ impl WriteIn for Header {
         io.write_all(header_bytes).await
     }
 }
+
+pub struct Reader<'a>(pub Box<dyn AsyncRead + Send + Unpin + 'a>);
+
+#[async_trait]
+impl<'a> FromReader<'a> for Reader<'a> {
+    type Error = Infallible;
+
+    async fn from_reader(
+        mut reader: impl AsyncRead + Send + Unpin + 'a,
+    ) -> Result<Self, Self::Error> {
+        Ok(Reader(Box::new(reader)))
+    }
+}
+
+pub type RequestReader<'a> = Request<Reader<'a>>;

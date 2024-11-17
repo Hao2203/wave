@@ -1,7 +1,15 @@
 use super::Result;
-use crate::{message::Message, service::Version, Body, Request, Response, ServiceDef};
+use crate::{
+    body::Body,
+    message::{FromReader, WriteIn},
+    request::RequestReader as Request,
+    service::Version,
+    ServiceDef,
+};
 use async_trait::async_trait;
 use std::{collections::BTreeMap, future::Future, ops::AsyncFn, sync::Arc};
+
+type Response<'a> = crate::response::Response<Body<'a>>;
 
 pub struct RpcService<'a, S> {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync + 'a>>,
@@ -52,8 +60,8 @@ impl<'a, State> RpcService<'a, State> {
     where
         State: Sync + 'a,
         S: ServiceDef + Send + Sync + 'static,
-        <S as ServiceDef>::Request: Message + Send,
-        <S as ServiceDef>::Response: Message + Send,
+        <S as ServiceDef>::Request: for<'b> FromReader<'b> + Send,
+        <S as ServiceDef>::Response: WriteIn + Send,
     {
         let id = S::ID;
         let key = ServiceKey::new(id, self.version);
