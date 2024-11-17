@@ -1,6 +1,7 @@
 use super::Result;
 use crate::{
     body::Body,
+    code::Code,
     message::{FromReader, WriteIn},
     request::RequestReader as Request,
     service::Version,
@@ -120,10 +121,7 @@ where
         if let Some(handler) = self.map.get(&key) {
             return handler.call(req).await;
         }
-        Ok(Response::new(
-            Code::ServiceNotFound as u16,
-            Body::new_empty(),
-        ))
+        Ok(Response::new(Code::ServiceNotFound, Body::new_empty()))
     }
 }
 
@@ -138,12 +136,11 @@ impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
 where
     State: Sync + 'a,
     F: Handle<&'a State, Req, Response = Resp> + Sync,
-    Req: Message<'a> + Send,
-    Resp: Message<'a> + Send,
+    Req: FromReader<'a> + Send,
+    Resp: WriteIn + Send,
 {
     async fn call(&self, req: &mut Request) -> Result<Response> {
-        let body = req.body_mut();
-        let req = Req::from_body(body).await.unwrap();
+        let req = Req::from_reader(req.body_mut()).await.unwrap();
         let resp = (self.f).call(self.state, req).await;
         let body = resp.into_body().unwrap();
         Ok(Response::success(body))

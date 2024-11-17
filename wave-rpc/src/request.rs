@@ -1,5 +1,9 @@
 #![allow(unused)]
-use std::convert::Infallible;
+use std::{
+    convert::Infallible,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::{
     error::{Error, Result},
@@ -44,6 +48,14 @@ impl<T> Request<T> {
 
     pub fn service_version(&self) -> Version {
         Version::from(self.header.service_version)
+    }
+
+    pub fn body(&self) -> &T {
+        &self.body
+    }
+
+    pub fn body_mut(&mut self) -> &mut T {
+        &mut self.body
     }
 }
 
@@ -134,6 +146,16 @@ impl WriteIn for Header {
 }
 
 pub struct Reader<'a>(pub Box<dyn AsyncRead + Send + Unpin + 'a>);
+
+impl AsyncRead for Reader<'_> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
 
 #[async_trait]
 impl<'a> FromReader<'a> for Reader<'a> {

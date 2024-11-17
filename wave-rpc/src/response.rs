@@ -14,6 +14,10 @@ pub struct Response<T> {
 }
 
 impl<T> Response<T> {
+    pub fn new(code: Code, body: T) -> Self {
+        Self { code, body }
+    }
+
     pub fn is_success(&self) -> bool {
         self.code == Code::Ok
     }

@@ -11,7 +11,7 @@ use futures::{AsyncRead, AsyncWrite};
 use std::sync::Arc;
 use tracing::{instrument, trace, Level};
 
-// pub mod service
+// pub mod service;
 
 pub struct RpcServer {
     max_body_size: usize,
