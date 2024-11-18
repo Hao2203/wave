@@ -23,9 +23,9 @@ impl RpcServer {
     }
 
     #[instrument(skip_all, level = Level::TRACE, err(level = Level::WARN))]
-    pub async fn serve<Req, Resp>(
+    pub async fn serve<'a, Req, Resp>(
         &self,
-        service: impl Service<Req, Response = Resp> + Send + Sync,
+        service: impl Service<Req, Response = Resp> + Send + Sync + 'a,
         mut io: (impl AsyncRead + AsyncWrite + Send + Unpin),
     ) -> Result<()>
     where

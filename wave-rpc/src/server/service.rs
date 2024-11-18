@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     message::{FromReader, SendTo},
     request::RequestReader as Request,
-    service::Version,
+    service::{Service, Version},
     ServiceDef,
 };
 use async_trait::async_trait;
@@ -53,11 +53,10 @@ impl<State> RpcServiceBuilder<State> {
 
     pub fn register<S>(
         mut self,
-        state: State,
         f: impl for<'a> Handle<&'a State, S::Request, Response = S::Response> + Send + Sync + 'static,
     ) -> Self
     where
-        State: Send + Sync + 'static,
+        State: Send + Sync + Clone + 'static,
         S: ServiceDef + Send + Sync + 'static,
         <S as ServiceDef>::Request: for<'b> FromReader<'b> + Send,
         <S as ServiceDef>::Response: SendTo<Error: Into<Error>> + Send,
@@ -68,16 +67,20 @@ impl<State> RpcServiceBuilder<State> {
             key,
             Box::new(FnHandler {
                 f,
-                state,
+                state: self.state.clone(),
                 _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
             }),
         );
         self
     }
 
-    pub fn merge<State2>(mut self, other: RpcServiceBuilder<State2>) -> Self {
+    pub fn merge(mut self, other: RpcService) -> Self {
         self.map.extend(other.map);
         self
+    }
+
+    pub fn build(self) -> RpcService {
+        RpcService { map: self.map }
     }
 }
 
@@ -93,6 +96,32 @@ impl ServiceKey {
             id,
             version: version.into(),
         }
+    }
+}
+
+pub struct RpcService {
+    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
+}
+
+impl Service<Request<'static>> for Arc<RpcService> {
+    type Response = Response<'static>;
+    type Error = Error;
+    fn call(
+        &self,
+        mut req: Request<'static>,
+    ) -> impl Future<Output = std::result::Result<Self::Response, Self::Error>> + Send + 'static
+    {
+        let id = req.header.service_id;
+        let version = req.header.service_version;
+        let key = ServiceKey::new(id, version);
+        let arc_self = self.clone();
+        let fut = async move {
+            if let Some(handler) = arc_self.map.get(&key) {
+                return handler.call(&mut req).await;
+            }
+            todo!()
+        };
+        fut
     }
 }
 
