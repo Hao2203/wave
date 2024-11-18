@@ -5,7 +5,7 @@ use futures::AsyncRead;
 use crate::{
     code::Code,
     error::{Error, Result},
-    message::{FromReader, WriteIn},
+    message::{FromReader, SendTo},
 };
 
 pub struct Response<T> {
@@ -16,6 +16,14 @@ pub struct Response<T> {
 impl<T> Response<T> {
     pub fn new(code: Code, body: T) -> Self {
         Self { code, body }
+    }
+
+    pub fn success(body: T) -> Self {
+        Self::new(Code::Ok, body)
+    }
+
+    pub fn code(&self) -> Code {
+        self.code
     }
 
     pub fn is_success(&self) -> bool {
@@ -40,18 +48,18 @@ where
 }
 
 #[async_trait]
-impl<T> WriteIn for Response<T>
+impl<T> SendTo for Response<T>
 where
-    T: WriteIn + Send,
+    T: SendTo + Send,
 {
     type Error = Error;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
     ) -> std::result::Result<(), Self::Error> {
-        self.code.write_in(io).await?;
-        self.body.write_in(io).await.unwrap();
+        self.code.send_to(io).await?;
+        self.body.send_to(io).await.unwrap();
         Ok(())
     }
 }

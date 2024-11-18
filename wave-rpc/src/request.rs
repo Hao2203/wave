@@ -1,19 +1,18 @@
 #![allow(unused)]
-use std::{
-    convert::Infallible,
-    pin::Pin,
-    task::{Context, Poll},
-};
-
 use crate::{
     error::{Error, Result},
-    message::{FromReader, WriteIn},
+    message::{FromReader, SendTo},
     service::Version,
     ServiceDef,
 };
 use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
 use futures::{future::BoxFuture, AsyncRead, AsyncReadExt, AsyncWriteExt, StreamExt};
+use std::{
+    convert::Infallible,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio_util::{
     codec::{Decoder, Encoder, Framed, FramedRead},
     compat::FuturesAsyncReadCompatExt,
@@ -81,18 +80,18 @@ where
 }
 
 #[async_trait]
-impl<T> WriteIn for Request<T>
+impl<T> SendTo for Request<T>
 where
-    T: WriteIn + Send,
+    T: SendTo + Send,
 {
     type Error = std::io::Error;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
     ) -> std::result::Result<(), Self::Error> {
-        self.header.write_in(io).await?;
-        self.body.write_in(io).await.unwrap();
+        self.header.send_to(io).await?;
+        self.body.send_to(io).await.unwrap();
         Ok(())
     }
 }
@@ -133,10 +132,10 @@ impl FromReader<'_> for Header {
 }
 
 #[async_trait]
-impl WriteIn for Header {
+impl SendTo for Header {
     type Error = std::io::Error;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
     ) -> std::result::Result<(), Self::Error> {
@@ -145,27 +144,4 @@ impl WriteIn for Header {
     }
 }
 
-pub struct Reader<'a>(pub Box<dyn AsyncRead + Send + Unpin + 'a>);
-
-impl AsyncRead for Reader<'_> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.0).poll_read(cx, buf)
-    }
-}
-
-#[async_trait]
-impl<'a> FromReader<'a> for Reader<'a> {
-    type Error = Infallible;
-
-    async fn from_reader(
-        mut reader: impl AsyncRead + Send + Unpin + 'a,
-    ) -> Result<Self, Self::Error> {
-        Ok(Reader(Box::new(reader)))
-    }
-}
-
-pub type RequestReader<'a> = Request<Reader<'a>>;
+pub type RequestReader<'a> = Request<Box<dyn AsyncRead + Send + Unpin + 'a>>;

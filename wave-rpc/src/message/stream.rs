@@ -1,4 +1,4 @@
-use super::{FromReader, WriteIn};
+use super::{FromReader, SendTo};
 use async_trait::async_trait;
 use derive_more::derive::Display;
 use futures::{
@@ -37,18 +37,18 @@ where
 }
 
 #[async_trait]
-impl<T> WriteIn for Stream<'_, T>
+impl<T> SendTo for Stream<'_, T>
 where
-    T: Send + WriteIn + for<'a> FromReader<'a>,
+    T: Send + SendTo + for<'a> FromReader<'a>,
 {
     type Error = std::io::Error;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
         while let Some(item) = self.stream.next().await {
-            item.unwrap().write_in(io).await.unwrap();
+            item.unwrap().send_to(io).await.unwrap();
         }
         Ok(())
     }

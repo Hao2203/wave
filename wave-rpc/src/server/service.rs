@@ -2,7 +2,8 @@ use super::Result;
 use crate::{
     body::Body,
     code::Code,
-    message::{FromReader, WriteIn},
+    error::Error,
+    message::{FromReader, SendTo},
     request::RequestReader as Request,
     service::Version,
     ServiceDef,
@@ -12,24 +13,24 @@ use std::{collections::BTreeMap, future::Future, ops::AsyncFn, sync::Arc};
 
 type Response<'a> = crate::response::Response<Body<'a>>;
 
-pub struct RpcService<'a, S> {
-    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync + 'a>>,
-    state: &'a S,
+pub struct RpcServiceBuilder<S> {
+    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
+    state: S,
     version: Version,
 }
 
-impl RpcService<'_, ()> {
+impl RpcServiceBuilder<()> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
-            state: &(),
+            state: (),
             version: Default::default(),
         }
     }
 }
-impl<'a, State> RpcService<'a, State> {
-    pub fn with_state(state: &'a State) -> Self {
+impl<State> RpcServiceBuilder<State> {
+    pub fn with_state(state: State) -> Self {
         Self {
             map: BTreeMap::new(),
             state,
@@ -37,16 +38,12 @@ impl<'a, State> RpcService<'a, State> {
         }
     }
 
-    pub fn set_state<State2>(self, state: &'a State2) -> RpcService<'a, State2> {
-        RpcService {
+    pub fn set_state<State2>(self, state: State2) -> RpcServiceBuilder<State2> {
+        RpcServiceBuilder {
             map: self.map,
             state,
             version: self.version,
         }
-    }
-
-    pub fn clear_state(self) -> RpcService<'a, ()> {
-        self.set_state(&())
     }
 
     pub fn version(mut self, version: impl Into<Version>) -> Self {
@@ -56,13 +53,14 @@ impl<'a, State> RpcService<'a, State> {
 
     pub fn register<S>(
         mut self,
-        f: impl Handle<&'a State, S::Request, Response = S::Response> + Send + Sync + 'a,
+        state: State,
+        f: impl for<'a> Handle<&'a State, S::Request, Response = S::Response> + Send + Sync + 'static,
     ) -> Self
     where
-        State: Sync + 'a,
+        State: Send + Sync + 'static,
         S: ServiceDef + Send + Sync + 'static,
         <S as ServiceDef>::Request: for<'b> FromReader<'b> + Send,
-        <S as ServiceDef>::Response: WriteIn + Send,
+        <S as ServiceDef>::Response: SendTo<Error: Into<Error>> + Send,
     {
         let id = S::ID;
         let key = ServiceKey::new(id, self.version);
@@ -70,27 +68,16 @@ impl<'a, State> RpcService<'a, State> {
             key,
             Box::new(FnHandler {
                 f,
-                state: self.state,
+                state,
                 _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
             }),
         );
         self
     }
 
-    pub fn merge<State2>(mut self, other: RpcService<'a, State2>) -> Self {
+    pub fn merge<State2>(mut self, other: RpcServiceBuilder<State2>) -> Self {
         self.map.extend(other.map);
         self
-    }
-
-    pub fn merge_with_state<State2>(
-        mut self,
-        other: RpcService<'a, State2>,
-    ) -> RpcService<'a, State2>
-    where
-        State2: Sync + 'a,
-    {
-        self.map.extend(other.map);
-        self.set_state(other.state)
     }
 }
 
@@ -109,43 +96,21 @@ impl ServiceKey {
     }
 }
 
-#[async_trait]
-impl<'a, State> RpcHandler for RpcService<'a, State>
-where
-    State: Sync + 'a,
-{
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        let id = req.header.service_id;
-        let version = req.header.service_version;
-        let key = ServiceKey::new(id, version);
-        if let Some(handler) = self.map.get(&key) {
-            return handler.call(req).await;
-        }
-        Ok(Response::new(Code::ServiceNotFound, Body::new_empty()))
-    }
-}
-
-struct FnHandler<State, F, Req, Resp> {
-    f: F,
-    state: Arc<State>,
-    _service: std::marker::PhantomData<fn() -> (Req, Resp)>,
-}
-
-#[async_trait]
-impl<'a, State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
-where
-    State: Sync + 'a,
-    F: Handle<&'a State, Req, Response = Resp> + Sync,
-    Req: FromReader<'a> + Send,
-    Resp: WriteIn + Send,
-{
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        let req = Req::from_reader(req.body_mut()).await.unwrap();
-        let resp = (self.f).call(self.state, req).await;
-        let body = resp.into_body().unwrap();
-        Ok(Response::success(body))
-    }
-}
+// #[async_trait]
+// impl<'a, State> RpcHandler for RpcService<'a, State>
+// where
+//     State: Sync + 'a,
+// {
+//     async fn call(&self, req: &mut Request) -> Result<Response> {
+//         let id = req.header.service_id;
+//         let version = req.header.service_version;
+//         let key = ServiceKey::new(id, version);
+//         if let Some(handler) = self.map.get(&key) {
+//             return handler.call(req).await;
+//         }
+//         Ok(Response::new(Code::ServiceNotFound, Body::new_empty()))
+//     }
+// }
 
 pub trait Handle<State, Req> {
     type Response;
@@ -169,6 +134,28 @@ where
 #[async_trait]
 pub trait RpcHandler {
     async fn call(&self, req: &mut Request) -> Result<Response>;
+}
+
+struct FnHandler<State, F, Req, Resp> {
+    f: F,
+    state: State,
+    _service: std::marker::PhantomData<fn() -> (Req, Resp)>,
+}
+
+#[async_trait]
+impl<State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
+where
+    State: Sync,
+    F: for<'a> Handle<&'a State, Req, Response = Resp> + Sync,
+    Req: for<'a> FromReader<'a> + Send,
+    Resp: SendTo<Error: Into<Error>> + Send,
+{
+    async fn call(&self, req: &mut Request) -> Result<Response> {
+        let req = Req::from_reader(req.body_mut()).await.unwrap();
+        let resp = (self.f).call(&self.state, req).await;
+        let body = Body::new(resp);
+        Ok(Response::success(body))
+    }
 }
 
 #[async_trait]
@@ -207,7 +194,7 @@ mod test {
 
     #[test]
     fn test() {
-        is_send::<RpcService<'_, ()>>();
+        is_send::<RpcServiceBuilder<()>>();
     }
 
     fn is_send<T: Send>() {}

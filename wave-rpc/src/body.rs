@@ -1,28 +1,40 @@
 use async_trait::async_trait;
 
-use crate::{error::Error, message::WriteIn};
+use crate::{error::Error, message::SendTo};
 
-pub struct Body<'a>(pub Box<dyn WriteIn<Error = Error> + Send + 'a>);
+pub struct Body<'a>(pub Box<dyn SendTo<Error = Error> + Send + 'a>);
 
 impl<'a> Body<'a> {
-    pub fn new(body: impl WriteIn<Error: Into<Error>> + Send + 'a) -> Self {
+    pub fn new(body: impl SendTo<Error: Into<Error>> + Send + 'a) -> Self {
         Self(Box::new(BodyInner(body)))
+    }
+}
+
+#[async_trait]
+impl SendTo for Body<'_> {
+    type Error = Error;
+
+    async fn send_to(
+        &mut self,
+        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> std::result::Result<(), Self::Error> {
+        self.0.send_to(io).await
     }
 }
 
 struct BodyInner<T>(T);
 
 #[async_trait]
-impl<T> WriteIn for BodyInner<T>
+impl<T> SendTo for BodyInner<T>
 where
-    T: WriteIn<Error: Into<Error>> + Send,
+    T: SendTo<Error: Into<Error>> + Send,
 {
     type Error = Error;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
     ) -> std::result::Result<(), Self::Error> {
-        self.0.write_in(io).await.map_err(Into::into)
+        self.0.send_to(io).await.map_err(Into::into)
     }
 }

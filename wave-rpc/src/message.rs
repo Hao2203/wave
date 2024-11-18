@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::{io::AsyncReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
+use std::convert::Infallible;
 
 pub mod stream;
 
@@ -13,13 +14,22 @@ pub trait FromReader<'a> {
 }
 
 #[async_trait]
-pub trait WriteIn {
+pub trait SendTo {
     type Error: core::error::Error + Send;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error>;
+}
+
+#[async_trait]
+impl<'a> FromReader<'a> for Box<dyn AsyncRead + Send + Unpin + 'a> {
+    type Error = Infallible;
+
+    async fn from_reader(reader: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error> {
+        Ok(Box::new(reader))
+    }
 }
 
 #[async_trait]
@@ -37,10 +47,10 @@ impl FromReader<'_> for String {
 }
 
 #[async_trait]
-impl WriteIn for String {
+impl SendTo for String {
     type Error = std::io::Error;
 
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {

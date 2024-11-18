@@ -1,7 +1,7 @@
 #![allow(unused)]
 use crate::{
     error::Result,
-    message::{FromReader, WriteIn},
+    message::{FromReader, SendTo},
     request::Request,
     response::Response,
     service::Service,
@@ -11,7 +11,7 @@ use futures::{AsyncRead, AsyncWrite};
 use std::sync::Arc;
 use tracing::{instrument, trace, Level};
 
-// pub mod service;
+pub mod service;
 
 pub struct RpcServer {
     max_body_size: usize,
@@ -30,11 +30,11 @@ impl RpcServer {
     ) -> Result<()>
     where
         Req: for<'b> FromReader<'b>,
-        Resp: WriteIn,
+        Resp: SendTo,
     {
         let req = Req::from_reader(&mut io).await.unwrap();
         let mut resp = service.call(req).await.unwrap();
-        resp.write_in(&mut io).await.unwrap();
+        resp.send_to(&mut io).await.unwrap();
 
         Ok(())
     }

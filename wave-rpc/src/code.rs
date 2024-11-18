@@ -1,4 +1,4 @@
-use crate::message::{FromReader, WriteIn};
+use crate::message::{FromReader, SendTo};
 use async_trait::async_trait;
 use derive_more::derive::Display;
 use futures::{io::AsyncReadExt, AsyncWriteExt};
@@ -42,9 +42,9 @@ impl FromReader<'_> for Code {
 }
 
 #[async_trait]
-impl WriteIn for Code {
+impl SendTo for Code {
     type Error = std::io::Error;
-    async fn write_in(
+    async fn send_to(
         &mut self,
         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
