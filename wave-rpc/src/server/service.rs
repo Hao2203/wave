@@ -104,12 +104,12 @@ pub struct RpcService {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
 }
 
-impl Service<Request<'static>> for RpcService {
+impl Service<Request> for RpcService {
     type Response = Response;
     type Error = Error;
     fn call(
         &self,
-        mut req: Request<'static>,
+        mut req: Request,
     ) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send + 'static {
         let id = req.header.service_id;
         let version = req.header.service_version;
@@ -142,7 +142,7 @@ where
 }
 
 pub trait RpcHandler {
-    fn call(&self, req: Request<'static>) -> BoxFuture<'static, Result<Response>>;
+    fn call(&self, req: Request) -> BoxFuture<'static, Result<Response>>;
 }
 
 struct FnHandler<State, F, Req, Resp> {
@@ -154,11 +154,11 @@ struct FnHandler<State, F, Req, Resp> {
 impl<State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
 where
     State: Clone + Sync + Send + 'static,
-    F: for<'a> Handle<State, Req, Response = Resp> + Send + Clone + Sync + 'static,
-    Req: for<'a> FromReader<'a> + Send,
+    F: Handle<State, Req, Response = Resp>,
+    for<'a> Req: FromReader<'a> + Send,
     Resp: SendTo<Error: Into<Error>> + Send + Sync + 'static,
 {
-    fn call(&self, mut req: Request<'static>) -> BoxFuture<'static, Result<Response>> {
+    fn call(&self, mut req: Request) -> BoxFuture<'static, Result<Response>> {
         let f = self.f.clone();
         let state = self.state.clone();
         let fut = async move {

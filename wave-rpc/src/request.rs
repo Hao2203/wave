@@ -144,4 +144,4 @@ impl SendTo for Header {
     }
 }
 
-pub type RequestReader<'a> = Request<Box<dyn AsyncRead + Send + Unpin + 'a>>;
+pub type RequestReader = Request<Box<dyn AsyncRead + Send + Unpin + 'static>>;

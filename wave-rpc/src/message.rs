@@ -58,3 +58,33 @@ impl SendTo for String {
         Ok(())
     }
 }
+
+#[async_trait]
+impl<T, E> FromReader<'_> for Result<T, E>
+where
+    for<'a> T: FromReader<'a, Error: Into<crate::error::Error>>,
+    for<'a> E:
+        FromReader<'a, Error: Into<crate::error::Error>> + std::marker::Send + derive_more::Error,
+{
+    type Error = crate::error::Error;
+
+    async fn from_reader(_reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl<T, E> SendTo for Result<T, E>
+where
+    for<'a> T: SendTo + Send,
+    for<'a> E: SendTo + Send + Send + core::error::Error,
+{
+    type Error = crate::error::Error;
+
+    async fn send_to(
+        &mut self,
+        _io: &mut (dyn AsyncWrite + Send + Unpin),
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+}
