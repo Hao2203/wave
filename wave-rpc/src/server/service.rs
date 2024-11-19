@@ -9,9 +9,10 @@ use crate::{
     ServiceDef,
 };
 use async_trait::async_trait;
+use futures::future::{ready, BoxFuture, Ready};
 use std::{collections::BTreeMap, future::Future, ops::AsyncFn, sync::Arc};
 
-type Response<'a> = crate::response::Response<Body<'a>>;
+type Response = crate::response::Response<Body<'static>>;
 
 pub struct RpcServiceBuilder<S> {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
@@ -53,13 +54,13 @@ impl<State> RpcServiceBuilder<State> {
 
     pub fn register<S>(
         mut self,
-        f: impl for<'a> Handle<&'a State, S::Request, Response = S::Response> + Send + Sync + 'static,
+        f: impl for<'a> Handle<State, S::Request, Response = S::Response>,
     ) -> Self
     where
         State: Send + Sync + Clone + 'static,
         S: ServiceDef + Send + Sync + 'static,
-        <S as ServiceDef>::Request: for<'b> FromReader<'b> + Send,
-        <S as ServiceDef>::Response: SendTo<Error: Into<Error>> + Send,
+        <S as ServiceDef>::Request: for<'b> FromReader<'b> + Send + 'static,
+        <S as ServiceDef>::Response: SendTo<Error: Into<Error>> + Send + Sync + 'static,
     {
         let id = S::ID;
         let key = ServiceKey::new(id, self.version);
@@ -103,66 +104,45 @@ pub struct RpcService {
     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
 }
 
-impl Service<Request<'static>> for Arc<RpcService> {
-    type Response = Response<'static>;
+impl Service<Request<'static>> for RpcService {
+    type Response = Response;
     type Error = Error;
     fn call(
         &self,
         mut req: Request<'static>,
-    ) -> impl Future<Output = std::result::Result<Self::Response, Self::Error>> + Send + 'static
-    {
+    ) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send + 'static {
         let id = req.header.service_id;
         let version = req.header.service_version;
         let key = ServiceKey::new(id, version);
-        let arc_self = self.clone();
-        let fut = async move {
-            if let Some(handler) = arc_self.map.get(&key) {
-                return handler.call(&mut req).await;
-            }
-            todo!()
-        };
-        fut
+        let handler = self.map.get(&key).expect("service not found");
+        handler.call(req)
     }
 }
 
-// #[async_trait]
-// impl<'a, State> RpcHandler for RpcService<'a, State>
-// where
-//     State: Sync + 'a,
-// {
-//     async fn call(&self, req: &mut Request) -> Result<Response> {
-//         let id = req.header.service_id;
-//         let version = req.header.service_version;
-//         let key = ServiceKey::new(id, version);
-//         if let Some(handler) = self.map.get(&key) {
-//             return handler.call(req).await;
-//         }
-//         Ok(Response::new(Code::ServiceNotFound, Body::new_empty()))
-//     }
-// }
-
-pub trait Handle<State, Req> {
+pub trait Handle<State, Req>: Clone + Send + Sync + 'static {
     type Response;
-    fn call(&self, state: State, req: Req) -> impl Future<Output = Self::Response> + Send;
+    type Future: Future<Output = Self::Response> + Send;
+    fn call(self, state: State, req: Req) -> Self::Future;
 }
 
-impl<F, Req, Resp, State> Handle<State, Req> for F
+impl<F, Fut, Req, Resp, State> Handle<State, Req> for F
 where
-    F: AsyncFn(State, Req) -> Resp + Sync,
-    for<'a> F::CallRefFuture<'a>: Send,
+    F: FnOnce(State, Req) -> Fut + Clone + Send + Sync + 'static,
+    Fut: Future<Output = Resp> + Send,
     State: Send,
     Req: Send,
     Resp: Send,
 {
     type Response = Resp;
-    async fn call(&self, state: State, req: Req) -> Resp {
-        (self)(state, req).await
+    type Future = Fut;
+
+    fn call(self, state: State, req: Req) -> Self::Future {
+        (self)(state, req)
     }
 }
 
-#[async_trait]
 pub trait RpcHandler {
-    async fn call(&self, req: &mut Request) -> Result<Response>;
+    fn call(&self, req: Request<'static>) -> BoxFuture<'static, Result<Response>>;
 }
 
 struct FnHandler<State, F, Req, Resp> {
@@ -171,49 +151,23 @@ struct FnHandler<State, F, Req, Resp> {
     _service: std::marker::PhantomData<fn() -> (Req, Resp)>,
 }
 
-#[async_trait]
 impl<State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
 where
-    State: Sync,
-    F: for<'a> Handle<&'a State, Req, Response = Resp> + Sync,
+    State: Clone + Sync + Send + 'static,
+    F: for<'a> Handle<State, Req, Response = Resp> + Send + Clone + Sync + 'static,
     Req: for<'a> FromReader<'a> + Send,
-    Resp: SendTo<Error: Into<Error>> + Send,
+    Resp: SendTo<Error: Into<Error>> + Send + Sync + 'static,
 {
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        let req = Req::from_reader(req.body_mut()).await.unwrap();
-        let resp = (self.f).call(&self.state, req).await;
-        let body = Body::new(resp);
-        Ok(Response::success(body))
-    }
-}
-
-#[async_trait]
-impl<T> RpcHandler for &T
-where
-    T: RpcHandler + Send + Sync,
-{
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        <Self as RpcHandler>::call(self, req).await
-    }
-}
-
-#[async_trait]
-impl<T> RpcHandler for &mut T
-where
-    T: RpcHandler + Send + Sync,
-{
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        <Self as RpcHandler>::call(self, req).await
-    }
-}
-
-#[async_trait]
-impl<T> RpcHandler for Box<T>
-where
-    T: RpcHandler + Send + Sync,
-{
-    async fn call(&self, req: &mut Request) -> Result<Response> {
-        <Self as RpcHandler>::call(self, req).await
+    fn call(&self, mut req: Request<'static>) -> BoxFuture<'static, Result<Response>> {
+        let f = self.f.clone();
+        let state = self.state.clone();
+        let fut = async move {
+            let req = Req::from_reader(req.body_mut()).await.unwrap();
+            let resp = f.call(state, req).await;
+            let body = Body::new(resp);
+            Ok(Response::success(body))
+        };
+        Box::pin(fut)
     }
 }
 
