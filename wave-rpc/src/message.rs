@@ -1,6 +1,14 @@
 use async_trait::async_trait;
+use derive_more::derive::Display;
 use futures::{io::AsyncReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
 use std::convert::Infallible;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
+
+use crate::{
+    code::Code,
+    error::{Error, RpcError},
+};
 
 pub mod stream;
 
@@ -59,32 +67,59 @@ impl SendTo for String {
     }
 }
 
+#[derive(Debug, Display, derive_more::Error)]
+pub enum ResultMessageError {
+    DecodeTagFailed,
+}
+
+impl RpcError for ResultMessageError {
+    fn code(&self) -> Code {
+        match self {
+            ResultMessageError::DecodeTagFailed => Code::InvalidMessage,
+        }
+    }
+}
+
 #[async_trait]
 impl<T, E> FromReader<'_> for Result<T, E>
 where
-    for<'a> T: FromReader<'a, Error: Into<crate::error::Error>>,
-    for<'a> E:
-        FromReader<'a, Error: Into<crate::error::Error>> + std::marker::Send + derive_more::Error,
+    for<'a> T: FromReader<'a, Error: Into<Error>>,
+    for<'a> E: FromReader<'a, Error: Into<Error>> + std::marker::Send + derive_more::Error,
 {
-    type Error = crate::error::Error;
+    type Error = Error;
 
-    async fn from_reader(_reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error> {
-        todo!()
+    async fn from_reader(mut reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error> {
+        let tag = { (&mut reader).compat().read_u8().await? };
+        match tag {
+            0 => Ok(Ok(T::from_reader(reader).await.map_err(Into::into)?)),
+            1 => Ok(Err(E::from_reader(reader).await.map_err(Into::into)?)),
+            _ => Err(ResultMessageError::DecodeTagFailed.into()),
+        }
     }
 }
 
 #[async_trait]
 impl<T, E> SendTo for Result<T, E>
 where
-    for<'a> T: SendTo + Send,
-    for<'a> E: SendTo + Send + Send + core::error::Error,
+    for<'a> T: SendTo<Error: Into<Error>> + Send,
+    for<'a> E: SendTo<Error: Into<Error>> + Send + Send + core::error::Error,
 {
     type Error = crate::error::Error;
 
     async fn send_to(
         &mut self,
-        _io: &mut (dyn AsyncWrite + Send + Unpin),
+        io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> Result<(), Self::Error> {
-        todo!()
+        match self {
+            Ok(t) => {
+                io.compat_write().write_u8(0).await?;
+                t.send_to(io).await.map_err(Into::into)?;
+            }
+            Err(e) => {
+                io.compat_write().write_u8(1).await?;
+                e.send_to(io).await.map_err(Into::into)?;
+            }
+        }
+        Ok(())
     }
 }

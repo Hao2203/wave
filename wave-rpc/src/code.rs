@@ -20,6 +20,7 @@ use zerocopy::{Immutable, IntoBytes, TryFromBytes};
 pub enum Code {
     Ok,
     IoError,
+    InvalidMessage,
 }
 
 impl Code {

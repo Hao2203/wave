@@ -1,4 +1,6 @@
+use crate::message::SendTo;
 use crate::{code::Code, message::FromReader};
+use async_trait::async_trait;
 use derive_more::derive::Display;
 use std::any::Any;
 use std::fmt::{Debug, Display};
@@ -19,9 +21,17 @@ impl Error {
     pub fn as_error<T: RpcError + 'static>(&self) -> Option<&T> {
         <dyn Send + Any>::downcast_ref(&self.cause)
     }
+
+    pub fn code(&self) -> Code {
+        self.as_rpc_error().code()
+    }
+
+    pub fn message(&self) -> String {
+        self.as_rpc_error().message()
+    }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl FromReader<'_> for Error {
     type Error = Self;
 
@@ -34,6 +44,20 @@ impl FromReader<'_> for Error {
         let code = Code::from_reader(&mut reader).await?;
         let message = String::from_reader(&mut reader).await?;
         Ok(ErrorMsg::new(code, message).into())
+    }
+}
+
+#[async_trait]
+impl SendTo for Error {
+    type Error = std::io::Error;
+
+    async fn send_to(
+        &mut self,
+        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+    ) -> std::result::Result<(), Self::Error> {
+        self.as_rpc_error().code().send_to(io).await?;
+        self.as_rpc_error().message().send_to(io).await?;
+        Ok(())
     }
 }
 

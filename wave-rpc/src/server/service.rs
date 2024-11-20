@@ -59,7 +59,7 @@ impl<State> RpcServiceBuilder<State> {
     where
         State: Send + Sync + Clone + 'static,
         S: ServiceDef + Send + Sync + 'static,
-        <S as ServiceDef>::Request: for<'b> FromReader<'b> + Send + 'static,
+        <S as ServiceDef>::Request: for<'b> FromReader<'b, Error: Into<Error>> + Send + 'static,
         <S as ServiceDef>::Response: SendTo<Error: Into<Error>> + Send + Sync + 'static,
     {
         let id = S::ID;
@@ -155,17 +155,22 @@ impl<State, F, Req, Resp> RpcHandler for FnHandler<State, F, Req, Resp>
 where
     State: Clone + Sync + Send + 'static,
     F: Handle<State, Req, Response = Resp>,
-    for<'a> Req: FromReader<'a> + Send,
+    for<'a> Req: FromReader<'a, Error: Into<Error>> + Send,
     Resp: SendTo<Error: Into<Error>> + Send + Sync + 'static,
 {
     fn call(&self, mut req: Request) -> BoxFuture<'static, Result<Response>> {
         let f = self.f.clone();
         let state = self.state.clone();
         let fut = async move {
-            let req = Req::from_reader(req.body_mut()).await.unwrap();
-            let resp = f.call(state, req).await;
-            let body = Body::new(resp);
-            Ok(Response::success(body))
+            let req = Req::from_reader(req.body_mut()).await.map_err(Into::into);
+            match req {
+                Ok(req) => {
+                    let resp = f.call(state, req).await;
+                    let body = Body::new(resp);
+                    Ok(Response::success(body))
+                }
+                Err(err) => Ok(Response::from_error(err)),
+            }
         };
         Box::pin(fut)
     }
