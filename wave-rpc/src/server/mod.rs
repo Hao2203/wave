@@ -11,6 +11,7 @@ use futures::{AsyncRead, AsyncWrite};
 use std::sync::Arc;
 use tracing::{instrument, trace, Level};
 
+pub mod context;
 pub mod service;
 
 pub struct RpcServer {
@@ -39,3 +40,7 @@ impl RpcServer {
         Ok(())
     }
 }
+
+pub trait Io: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T> Io for T where T: AsyncRead + AsyncWrite + Send + Unpin {}

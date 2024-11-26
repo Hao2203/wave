@@ -14,5 +14,6 @@ pub mod service;
 // mod tests;
 pub mod code;
 pub mod message;
+pub mod transport;
 
 pub use service::ServiceDef;
