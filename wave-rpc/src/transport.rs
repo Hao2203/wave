@@ -22,12 +22,14 @@ where
         while let Ok(cmd) = receiver.recv().await {
             match cmd {
                 Command::Read(mut tx) => {
-                    let mut buf = Vec::new();
-                    todo!();
-                    tx.send(Bytes::from(buf)).await;
+                    let bytes = self.read_bytes().await?;
+                    if let Err(e) = tx.send(bytes).await {
+                        tracing::debug!("failed to send bytes: {}", e);
+                        break;
+                    }
                 }
                 Command::Write(buf) => {
-                    todo!();
+                    self.write_bytes(buf).await?;
                 }
                 Command::Close => {
                     break;
@@ -35,6 +37,14 @@ where
             }
         }
         Ok(())
+    }
+
+    pub async fn read_bytes(&mut self) -> Result<Bytes, std::io::Error> {
+        todo!()
+    }
+
+    pub async fn write_bytes(&mut self, bytes: Bytes) -> Result<(), std::io::Error> {
+        todo!()
     }
 }
 
