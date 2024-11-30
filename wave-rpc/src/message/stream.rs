@@ -1,9 +1,9 @@
+#![allow(unused)]
 use super::{FromReader, SendTo};
 use async_trait::async_trait;
 use derive_more::derive::Display;
-use futures::{
-    pin_mut,
-    stream::{self, BoxStream},
+use futures_lite::{
+    stream::{self, Boxed},
     AsyncRead, AsyncWrite, StreamExt,
 };
 use std::{
@@ -12,79 +12,25 @@ use std::{
     task::{Context, Poll},
 };
 
-pub struct Stream<'a, T>
-where
-    T: Send,
-{
-    stream: StreamInner<'a, T>,
+pub struct Stream<T> {
+    receiver: async_channel::Receiver<T>,
 }
 
-#[async_trait::async_trait]
-impl<'a, T> FromReader<'a> for Stream<'a, T>
+impl<T> FromReader for Stream<T>
 where
-    T: Send,
+    T: Send + FromReader + 'static,
 {
     type Error = std::io::Error;
 
-    async fn from_reader(reader: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
+    async fn from_reader(reader: &mut (impl AsyncRead + Send + Unpin)) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        Ok(Stream {
-            stream: StreamInner::Reader(Box::new(reader)),
-        })
+        let (sender, receiver) = async_channel::bounded(1);
+        let item = T::from_reader(reader).await.unwrap();
+        tokio::spawn(async move {
+            sender.send(item).await.unwrap();
+        });
+        Ok(Stream { receiver })
     }
-}
-
-#[async_trait]
-impl<T> SendTo for Stream<'_, T>
-where
-    T: Send + SendTo + for<'a> FromReader<'a>,
-{
-    type Error = std::io::Error;
-
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error> {
-        while let Some(item) = self.stream.next().await {
-            item.unwrap().send_to(io).await.unwrap();
-        }
-        Ok(())
-    }
-}
-
-impl<T> stream::Stream for StreamInner<'_, T>
-where
-    T: Send + for<'b> FromReader<'b>,
-{
-    type Item = Result<T, Error>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            Self::Reader(reader) => {
-                let io = reader;
-                let fut = async move {
-                    let item = T::from_reader(io)
-                        .await
-                        .map_err(|_| Error::Io(std::io::ErrorKind::BrokenPipe.into()));
-                    Some(item)
-                };
-                pin_mut!(fut);
-                fut.poll(cx)
-            }
-            Self::Stream(stream) => stream.poll_next_unpin(cx),
-        }
-    }
-}
-
-pub enum StreamInner<'a, T> {
-    Reader(Box<dyn AsyncRead + Send + Unpin + 'a>),
-    Stream(BoxStream<'a, Result<T, Error>>),
-}
-
-#[derive(Debug, Display, derive_more::Error)]
-pub enum Error {
-    #[error(ignore)]
-    Io(std::io::Error),
 }

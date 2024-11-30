@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-
 use crate::{error::Error, message::SendTo};
+use async_trait::async_trait;
+use futures_lite::AsyncWrite;
 
 pub struct Body<'a>(pub Box<dyn SendTo<Error = Error> + Send + 'a>);
 
@@ -16,7 +16,7 @@ impl SendTo for Body<'_> {
 
     async fn send_to(
         &mut self,
-        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+        io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> std::result::Result<(), Self::Error> {
         self.0.send_to(io).await
     }
@@ -33,7 +33,7 @@ where
 
     async fn send_to(
         &mut self,
-        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+        io: &mut (dyn AsyncWrite + Send + Unpin),
     ) -> std::result::Result<(), Self::Error> {
         self.0.send_to(io).await.map_err(Into::into)
     }

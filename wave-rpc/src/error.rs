@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::message::SendTo;
 use crate::{code::Code, message::FromReader};
 use async_trait::async_trait;
@@ -31,35 +32,34 @@ impl Error {
     }
 }
 
-#[async_trait]
-impl FromReader<'_> for Error {
-    type Error = Self;
+// impl FromReader<'_> for Error {
+//     type Error = Self;
 
-    async fn from_reader(
-        mut reader: impl futures::AsyncRead + Send + Unpin,
-    ) -> std::result::Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        let code = Code::from_reader(&mut reader).await?;
-        let message = String::from_reader(&mut reader).await?;
-        Ok(ErrorMsg::new(code, message).into())
-    }
-}
+//     async fn from_reader(
+//         mut reader: impl futures::AsyncRead + Send + Unpin,
+//     ) -> std::result::Result<Self, Self::Error>
+//     where
+//         Self: Sized,
+//     {
+//         let code = Code::from_reader(&mut reader).await?;
+//         let message = String::from_reader(&mut reader).await?;
+//         Ok(ErrorMsg::new(code, message).into())
+//     }
+// }
 
-#[async_trait]
-impl SendTo for Error {
-    type Error = std::io::Error;
+// #[async_trait]
+// impl SendTo for Error {
+//     type Error = std::io::Error;
 
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn futures::AsyncWrite + Send + Unpin),
-    ) -> std::result::Result<(), Self::Error> {
-        self.as_rpc_error().code().send_to(io).await?;
-        self.as_rpc_error().message().send_to(io).await?;
-        Ok(())
-    }
-}
+//     async fn send_to(
+//         &mut self,
+//         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
+//     ) -> std::result::Result<(), Self::Error> {
+//         self.as_rpc_error().code().send_to(io).await?;
+//         self.as_rpc_error().message().send_to(io).await?;
+//         Ok(())
+//     }
+// }
 
 pub trait RpcError: Display + Debug {
     fn code(&self) -> Code;

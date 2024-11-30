@@ -1,7 +1,8 @@
+#![allow(unused)]
 use async_trait::async_trait;
 use derive_more::derive::Display;
-use futures::{io::AsyncReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
-use std::convert::Infallible;
+use futures_lite::{AsyncRead, AsyncWrite};
+use std::{convert::Infallible, future::Future};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
@@ -12,11 +13,12 @@ use crate::{
 
 pub mod stream;
 
-#[async_trait]
-pub trait FromReader<'a> {
+pub trait FromReader {
     type Error: core::error::Error + Send;
 
-    async fn from_reader(reader: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error>
+    fn from_reader(
+        reader: &mut (impl AsyncRead + Send + Unpin),
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;
 }
@@ -31,41 +33,18 @@ pub trait SendTo {
     ) -> Result<(), Self::Error>;
 }
 
-#[async_trait]
-impl<'a> FromReader<'a> for Box<dyn AsyncRead + Send + Unpin + 'a> {
-    type Error = Infallible;
+// #[async_trait]
+// impl SendTo for String {
+//     type Error = std::io::Error;
 
-    async fn from_reader(reader: impl AsyncRead + Send + Unpin + 'a) -> Result<Self, Self::Error> {
-        Ok(Box::new(reader))
-    }
-}
-
-#[async_trait]
-impl FromReader<'_> for String {
-    type Error = std::io::Error;
-
-    async fn from_reader(mut reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        String::from_utf8(buf).map_err(|_| std::io::ErrorKind::InvalidData.into())
-    }
-}
-
-#[async_trait]
-impl SendTo for String {
-    type Error = std::io::Error;
-
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error> {
-        io.write_all(self.as_bytes()).await?;
-        Ok(())
-    }
-}
+//     async fn send_to(
+//         &mut self,
+//         io: &mut (dyn AsyncWrite + Send + Unpin),
+//     ) -> Result<(), Self::Error> {
+//         io.write_all(self.as_bytes()).await?;
+//         Ok(())
+//     }
+// }
 
 #[derive(Debug, Display, derive_more::Error)]
 pub enum ResultMessageError {
@@ -76,24 +55,6 @@ impl RpcError for ResultMessageError {
     fn code(&self) -> Code {
         match self {
             ResultMessageError::DecodeTagFailed => Code::InvalidMessage,
-        }
-    }
-}
-
-#[async_trait]
-impl<T, E> FromReader<'_> for Result<T, E>
-where
-    for<'a> T: FromReader<'a, Error: Into<Error>>,
-    for<'a> E: FromReader<'a, Error: Into<Error>> + std::marker::Send + derive_more::Error,
-{
-    type Error = Error;
-
-    async fn from_reader(mut reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error> {
-        let tag = { (&mut reader).compat().read_u8().await? };
-        match tag {
-            0 => Ok(Ok(T::from_reader(reader).await.map_err(Into::into)?)),
-            1 => Ok(Err(E::from_reader(reader).await.map_err(Into::into)?)),
-            _ => Err(ResultMessageError::DecodeTagFailed.into()),
         }
     }
 }

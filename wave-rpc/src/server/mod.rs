@@ -12,6 +12,8 @@ use std::sync::Arc;
 use tracing::{instrument, trace, Level};
 
 pub mod context;
+pub mod fut;
+pub mod handler;
 pub mod service;
 
 pub struct RpcServer {

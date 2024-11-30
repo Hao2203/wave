@@ -4777,13 +4777,14 @@ name = "wave-rpc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "async-stream",
  "async-trait",
  "bincode",
  "bytes",
  "deadpool",
  "derive_more 1.0.0-beta.7",
- "futures",
+ "futures-lite 2.3.0",
  "pin-project",
  "rmp-serde",
  "serde",
