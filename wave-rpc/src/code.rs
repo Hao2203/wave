@@ -22,6 +22,7 @@ pub enum Code {
     Ok,
     IoError,
     InvalidMessage,
+    InternalServerError,
 }
 
 impl Code {

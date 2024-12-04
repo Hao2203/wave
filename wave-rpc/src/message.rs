@@ -9,6 +9,7 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 use crate::{
     code::Code,
     error::{Error, RpcError},
+    transport::ConnectionReader,
 };
 
 pub mod stream;
@@ -17,7 +18,7 @@ pub trait FromReader {
     type Error: core::error::Error + Send;
 
     fn from_reader(
-        reader: &mut (impl AsyncRead + Send + Unpin),
+        reader: ConnectionReader,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;

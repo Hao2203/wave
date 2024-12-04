@@ -1,6 +1,7 @@
 #![allow(unused)]
 use crate::message::SendTo;
 use crate::{code::Code, message::FromReader};
+use async_channel::SendError;
 use async_trait::async_trait;
 use derive_more::derive::Display;
 use std::any::Any;
