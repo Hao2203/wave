@@ -4805,6 +4805,7 @@ dependencies = [
  "deadpool",
  "derive_more 1.0.0-beta.7",
  "futures-lite 2.3.0",
+ "oneshot",
  "pin-project",
  "rmp-serde",
  "serde",

@@ -3,7 +3,7 @@ use async_channel::{Receiver, RecvError, SendError, Sender};
 use bytes::{Bytes, BytesMut};
 use derive_more::derive::{Display, From};
 use futures_lite::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use std::{future::Future, pin::Pin};
+use std::{future::Future, io, pin::Pin};
 
 use crate::{code::Code, error::RpcError};
 
@@ -18,15 +18,12 @@ impl Connection {
 }
 
 impl Connection {
-    pub async fn process(&mut self, receiver: Receiver<Command>) -> Result<(), std::io::Error> {
+    pub async fn process(&mut self, receiver: Receiver<Command>) -> Result<(), Error> {
         while let Ok(cmd) = receiver.recv().await {
             match cmd {
                 Command::Read(mut buf, mut tx) => {
                     self.io.read_exact(&mut buf).await?;
-                    if let Err(e) = tx.send(buf.freeze()).await {
-                        tracing::debug!("failed to send bytes: {}", e);
-                        break;
-                    }
+                    tx.send(buf.freeze())?
                 }
                 Command::Write(buf) => {
                     self.io.write_all(&buf).await?;
@@ -41,7 +38,7 @@ impl Connection {
 }
 
 pub enum Command {
-    Read(BytesMut, Sender<Bytes>),
+    Read(BytesMut, oneshot::Sender<Bytes>),
     Write(Bytes),
     Close,
 }
@@ -60,9 +57,9 @@ impl ConnectionReader {
     }
 
     pub async fn read(&mut self, mut buf: BytesMut) -> Result<Bytes, Error> {
-        let (tx, rx) = async_channel::bounded(1);
+        let (tx, rx) = oneshot::channel();
         self.sender.send(Command::Read(buf, tx)).await?;
-        let res = rx.recv().await?;
+        let res = rx.await?;
         Ok(res)
     }
 }
@@ -85,13 +82,17 @@ impl ConnectionWriter {
 #[derive(Debug, Display, From, derive_more::Error)]
 pub enum Error {
     SendError(SendError<Command>),
-    ReceiverError(RecvError),
+    ReceiverError(async_channel::RecvError),
+    OneshotReceiverEror(oneshot::RecvError),
+    OneshotSendError(oneshot::SendError<Bytes>),
+    Io(io::Error),
 }
 
 impl RpcError for Error {
     fn code(&self) -> Code {
         match self {
-            Error::ReceiverError(_) | Error::SendError(_) => Code::InternalServerError,
+            Self::Io(e) => e.code(),
+            _ => Code::InternalServerError,
         }
     }
 }
