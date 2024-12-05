@@ -47,6 +47,7 @@ where
             Self::Body(body) => {
                 let data = ready!(body.poll_next(cx));
                 if let Some(item) = data {
+                    let item = item.unwrap();
                     let item = pin!(T::from_body(body::Body::once(item)));
                     item.poll(cx).map(Some)
                 } else {
