@@ -2,7 +2,7 @@
 use crate::{
     body::Body,
     error::{Error, Result},
-    message::{FromBody, SendTo},
+    message::FromBody,
     service::Version,
     ServiceDef,
 };

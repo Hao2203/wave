@@ -1,8 +1,14 @@
 #![allow(unused)]
 use async_trait::async_trait;
+use bytes::Bytes;
 use derive_more::derive::Display;
 use futures_lite::{AsyncRead, AsyncWrite, Stream};
-use std::{convert::Infallible, future::Future};
+use std::{
+    convert::Infallible,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
@@ -23,19 +29,28 @@ pub trait FromBody {
         Self: Sized;
 }
 
-#[async_trait]
-pub trait SendTo {
-    type Error: core::error::Error + Send;
-
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error>;
-}
-
 pub trait MessageBody: Stream<Item = Result<Self::Chunk, Self::Error>> {
     type Error: core::error::Error + Send;
     type Chunk: AsRef<[u8]> + 'static;
+}
+
+impl<S, T, E> MessageBody for S
+where
+    S: Stream<Item = Result<T, E>>,
+    T: AsRef<[u8]> + 'static,
+    E: core::error::Error + Send,
+{
+    type Error = E;
+    type Chunk = T;
+}
+
+pub trait BodyStream {
+    type Error: core::error::Error + Send;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<Result<Bytes, Self::Error>>>;
 }
 
 #[derive(Debug, Display, derive_more::Error)]
@@ -48,31 +63,5 @@ impl RpcError for ResultMessageError {
         match self {
             ResultMessageError::DecodeTagFailed => Code::InvalidMessage,
         }
-    }
-}
-
-#[async_trait]
-impl<T, E> SendTo for Result<T, E>
-where
-    for<'a> T: SendTo<Error: Into<Error>> + Send,
-    for<'a> E: SendTo<Error: Into<Error>> + Send + Send + core::error::Error,
-{
-    type Error = crate::error::Error;
-
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> Result<(), Self::Error> {
-        match self {
-            Ok(t) => {
-                io.compat_write().write_u8(0).await?;
-                t.send_to(io).await.map_err(Into::into)?;
-            }
-            Err(e) => {
-                io.compat_write().write_u8(1).await?;
-                e.send_to(io).await.map_err(Into::into)?;
-            }
-        }
-        Ok(())
     }
 }

@@ -1,5 +1,4 @@
 #![allow(unused)]
-use crate::message::SendTo;
 use crate::{code::Code, message::FromBody};
 use async_channel::SendError;
 use async_trait::async_trait;

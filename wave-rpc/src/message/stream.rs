@@ -1,5 +1,5 @@
 #![allow(unused)]
-use super::{FromBody, SendTo};
+use super::{FromBody, MessageBody};
 use crate::{
     body::{self, Body},
     transport::ConnectionReader,
@@ -20,9 +20,9 @@ use std::{
     task::{Context, Poll},
 };
 
-pub struct Stream<T> {
-    body: Body,
-    _marker: std::marker::PhantomData<fn() -> T>,
+pub enum Stream<T> {
+    Body(Body),
+    Stream(Boxed<T>),
 }
 
 impl<T> FromBody for Stream<T> {
@@ -32,10 +32,7 @@ impl<T> FromBody for Stream<T> {
     where
         Self: Sized,
     {
-        Ok(Self {
-            body,
-            _marker: std::marker::PhantomData,
-        })
+        Ok(Self::Body(body))
     }
 }
 
@@ -46,12 +43,20 @@ where
     type Item = Result<T, E>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let data = ready!(self.as_mut().body.poll_next(cx));
-        if let Some(item) = data {
-            let item = pin!(T::from_body(body::Body::once(item)));
-            item.poll(cx).map(Some)
-        } else {
-            Poll::Ready(None)
+        match self.get_mut() {
+            Self::Body(body) => {
+                let data = ready!(body.poll_next(cx));
+                if let Some(item) = data {
+                    let item = pin!(T::from_body(body::Body::once(item)));
+                    item.poll(cx).map(Some)
+                } else {
+                    Poll::Ready(None)
+                }
+            }
+            Self::Stream(stream) => {
+                let data = ready!(stream.poll_next(cx));
+                Poll::Ready(data.map(Ok))
+            }
         }
     }
 }

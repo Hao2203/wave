@@ -1,5 +1,4 @@
 #![allow(unused)]
-use crate::{error::Error, message::SendTo};
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_lite::{

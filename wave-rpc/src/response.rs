@@ -5,7 +5,7 @@ use crate::{
     body::Body,
     code::Code,
     error::{Error, Result},
-    message::{FromBody, SendTo},
+    message::FromBody,
 };
 
 pub struct Response<T> {
