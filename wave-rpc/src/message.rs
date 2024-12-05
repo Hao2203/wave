@@ -18,7 +18,7 @@ pub trait FromReader {
     type Error: core::error::Error + Send;
 
     fn from_reader(
-        reader: ConnectionReader,
+        reader: &ConnectionReader,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;

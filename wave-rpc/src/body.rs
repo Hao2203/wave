@@ -1,40 +1,97 @@
+#![allow(unused)]
 use crate::{error::Error, message::SendTo};
 use async_trait::async_trait;
-use futures_lite::AsyncWrite;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures_lite::{stream::Boxed, AsyncWrite, StreamExt as _};
+use tokio_util::codec::{Decoder, Encoder};
 
-pub struct Body<'a>(pub Box<dyn SendTo<Error = Error> + Send + 'a>);
+pub struct Body {
+    is_end_of_stream: bool,
+    framed_stream: Boxed<Frame>,
+}
 
-impl<'a> Body<'a> {
-    pub fn new(body: impl SendTo<Error: Into<Error>> + Send + 'a) -> Self {
-        Self(Box::new(BodyInner(body)))
+impl Body {
+    pub fn new(stream: Boxed<Frame>) -> Self {
+        Self {
+            is_end_of_stream: false,
+            framed_stream: stream,
+        }
+    }
+
+    pub fn is_end_of_stream(&self) -> bool {
+        self.is_end_of_stream
+    }
+
+    pub fn framed_stream(self) -> Boxed<Frame> {
+        self.framed_stream
     }
 }
 
-#[async_trait]
-impl SendTo for Body<'_> {
-    type Error = Error;
+impl futures_lite::Stream for Body {
+    type Item = Bytes;
 
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> std::result::Result<(), Self::Error> {
-        self.0.send_to(io).await
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if self.is_end_of_stream {
+            return std::task::Poll::Ready(None);
+        }
+        let frame = self.framed_stream.poll_next(cx);
+        frame.map(|f| {
+            f.map(|f| {
+                self.is_end_of_stream = f.end_of_stream;
+                f.data
+            })
+        })
     }
 }
 
-struct BodyInner<T>(T);
+pub struct Frame {
+    data_size: u32,
+    end_of_stream: bool,
+    data: Bytes,
+}
 
-#[async_trait]
-impl<T> SendTo for BodyInner<T>
-where
-    T: SendTo<Error: Into<Error>> + Send,
-{
-    type Error = Error;
+impl Frame {
+    const SIZE_LEN: usize = 4;
+}
 
-    async fn send_to(
-        &mut self,
-        io: &mut (dyn AsyncWrite + Send + Unpin),
-    ) -> std::result::Result<(), Self::Error> {
-        self.0.send_to(io).await.map_err(Into::into)
+pub struct FrameCodec;
+
+impl Encoder<Frame> for FrameCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, item: Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.put_u32(item.data_size);
+        dst.put_u8(if item.end_of_stream { 1 } else { 0 });
+        dst.put(item.data);
+        Ok(())
+    }
+}
+
+impl Decoder for FrameCodec {
+    type Error = std::io::Error;
+    type Item = Frame;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Frame>, Self::Error> {
+        if src.len() < Frame::SIZE_LEN {
+            return Ok(None);
+        }
+
+        let data_size = src.get_u32();
+        let end_of_stream = src.get_u8() == 1;
+
+        if src.len() < data_size as usize {
+            return Ok(None);
+        }
+        let data = src.split_to(data_size as usize).freeze();
+
+        let frame = Frame {
+            data_size,
+            end_of_stream,
+            data,
+        };
+        Ok(Some(frame))
     }
 }

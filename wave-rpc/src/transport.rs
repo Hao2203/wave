@@ -47,6 +47,7 @@ trait Transport: AsyncRead + AsyncWrite {}
 
 impl<T: AsyncRead + AsyncWrite> Transport for T {}
 
+#[derive(Debug, Clone)]
 pub struct ConnectionReader {
     sender: Sender<Command>,
 }
@@ -56,7 +57,7 @@ impl ConnectionReader {
         Self { sender }
     }
 
-    pub async fn read(&mut self, mut buf: BytesMut) -> Result<Bytes, Error> {
+    pub async fn read(&self, mut buf: BytesMut) -> Result<Bytes, Error> {
         let (tx, rx) = oneshot::channel();
         self.sender.send(Command::Read(buf, tx)).await?;
         let res = rx.await?;
