@@ -2,7 +2,10 @@
 use crate::{error::Error, message::SendTo};
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use futures_lite::{stream::Boxed, AsyncWrite, StreamExt as _};
+use futures_lite::{
+    stream::{self, Boxed},
+    AsyncWrite, Stream, StreamExt as _,
+};
 use tokio_util::codec::{Decoder, Encoder};
 
 pub struct Body {
@@ -15,6 +18,13 @@ impl Body {
         Self {
             is_end_of_stream: false,
             framed_stream: stream,
+        }
+    }
+
+    pub fn once(data: Bytes) -> Self {
+        Self {
+            is_end_of_stream: true,
+            framed_stream: stream::once(Frame::once(data)).boxed(),
         }
     }
 
@@ -39,14 +49,18 @@ impl futures_lite::Stream for Body {
         }
         let frame = self.framed_stream.poll_next(cx);
         frame.map(|f| {
-            f.map(|f| {
+            if let Some(f) = f {
                 self.is_end_of_stream = f.end_of_stream;
-                f.data
-            })
+                Some(f.data)
+            } else {
+                self.is_end_of_stream = true;
+                None
+            }
         })
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Frame {
     data_size: u32,
     end_of_stream: bool,
@@ -55,6 +69,23 @@ pub struct Frame {
 
 impl Frame {
     const SIZE_LEN: usize = 4;
+    const EOS_LEN: usize = 1;
+
+    pub fn new(data: Bytes) -> Frame {
+        Frame {
+            data_size: data.len() as u32,
+            end_of_stream: false,
+            data,
+        }
+    }
+
+    pub fn once(data: Bytes) -> Frame {
+        Frame {
+            data_size: data.len() as u32,
+            end_of_stream: true,
+            data,
+        }
+    }
 }
 
 pub struct FrameCodec;
@@ -63,8 +94,9 @@ impl Encoder<Frame> for FrameCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.reserve(Frame::SIZE_LEN + Frame::EOS_LEN + item.data_size as usize);
         dst.put_u32(item.data_size);
-        dst.put_u8(if item.end_of_stream { 1 } else { 0 });
+        dst.put_u8(item.end_of_stream as u8);
         dst.put(item.data);
         Ok(())
     }

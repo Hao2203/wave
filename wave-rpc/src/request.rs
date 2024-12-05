@@ -1,7 +1,8 @@
 #![allow(unused)]
 use crate::{
+    body::Body,
     error::{Error, Result},
-    message::{FromReader, SendTo},
+    message::{FromBody, SendTo},
     service::Version,
     ServiceDef,
 };
@@ -18,12 +19,12 @@ use tokio_util::{
 };
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
-pub struct Request<T> {
+pub struct Request {
     pub header: Header,
-    pub body: T,
+    pub body: Body,
 }
 
-impl<T> Request<T> {
+impl Request {
     // pub fn new<S>(req: S::Request<'a>, service_version: impl Into<Version>) -> Result<Self>
     // where
     //     S: ServiceDef,
@@ -48,11 +49,11 @@ impl<T> Request<T> {
         Version::from(self.header.service_version)
     }
 
-    pub fn body(&self) -> &T {
+    pub fn body(&self) -> &Body {
         &self.body
     }
 
-    pub fn body_mut(&mut self) -> &mut T {
+    pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
     }
 }

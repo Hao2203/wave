@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::message::{FromReader, SendTo};
+use crate::message::{FromBody, SendTo};
 use async_trait::async_trait;
 use derive_more::derive::Display;
 use futures_lite::AsyncWrite;

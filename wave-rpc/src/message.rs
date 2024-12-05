@@ -1,12 +1,13 @@
 #![allow(unused)]
 use async_trait::async_trait;
 use derive_more::derive::Display;
-use futures_lite::{AsyncRead, AsyncWrite};
+use futures_lite::{AsyncRead, AsyncWrite, Stream};
 use std::{convert::Infallible, future::Future};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 use crate::{
+    body::Body,
     code::Code,
     error::{Error, RpcError},
     transport::ConnectionReader,
@@ -14,12 +15,10 @@ use crate::{
 
 pub mod stream;
 
-pub trait FromReader {
+pub trait FromBody {
     type Error: core::error::Error + Send;
 
-    fn from_reader(
-        reader: &ConnectionReader,
-    ) -> impl Future<Output = Result<Self, Self::Error>> + Send
+    fn from_body(body: Body) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;
 }
@@ -34,18 +33,10 @@ pub trait SendTo {
     ) -> Result<(), Self::Error>;
 }
 
-// #[async_trait]
-// impl SendTo for String {
-//     type Error = std::io::Error;
-
-//     async fn send_to(
-//         &mut self,
-//         io: &mut (dyn AsyncWrite + Send + Unpin),
-//     ) -> Result<(), Self::Error> {
-//         io.write_all(self.as_bytes()).await?;
-//         Ok(())
-//     }
-// }
+pub trait MessageBody: Stream<Item = Result<Self::Chunk, Self::Error>> {
+    type Error: core::error::Error + Send;
+    type Chunk: AsRef<[u8]> + 'static;
+}
 
 #[derive(Debug, Display, derive_more::Error)]
 pub enum ResultMessageError {
