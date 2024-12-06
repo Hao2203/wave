@@ -1,17 +1,11 @@
-#![allow(unused)]
-use super::{FromBody, MessageBody};
-use crate::{
-    body::{self, Body},
-    transport::ConnectionReader,
-};
-use async_executor::Executor;
-use async_stream::stream;
-use async_trait::async_trait;
-use derive_more::derive::Display;
+// #![allow(unused)]
+use super::{FromBody, IntoBody};
+use crate::{body::MessageBody, error::BoxError};
+use bytes::Bytes;
 use futures_lite::{
     ready,
     stream::{self, Boxed},
-    AsyncRead, AsyncWrite, StreamExt,
+    StreamExt,
 };
 use std::{
     convert::Infallible,
@@ -21,34 +15,52 @@ use std::{
 };
 
 pub enum Stream<T> {
-    Body(Body),
+    Body(Boxed<Result<Bytes, BoxError>>),
     Stream(Boxed<T>),
 }
 
 impl<T> FromBody for Stream<T> {
     type Error = Infallible;
 
-    async fn from_body(body: Body) -> Result<Self, Self::Error>
+    async fn from_body(body: impl MessageBody) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        Ok(Self::Body(body))
+        Ok(Self::Body(
+            body.map(|data| data.map_err(Into::into)).boxed(),
+        ))
+    }
+}
+
+impl<T> IntoBody for Stream<T>
+where
+    T: IntoBody + 'static,
+{
+    fn into_body(self) -> impl MessageBody {
+        match self {
+            Stream::Body(body) => body,
+            Stream::Stream(stream) => stream
+                .map(|item| item.into_body())
+                .flatten()
+                .map(|item| item.map_err(Into::into))
+                .boxed(),
+        }
     }
 }
 
 impl<T, E> futures_lite::Stream for Stream<T>
 where
-    T: Send + FromBody<Error = E>,
+    T: Send + FromBody<Error = E> + Sized,
 {
     type Item = Result<T, E>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             Self::Body(body) => {
                 let data = ready!(body.poll_next(cx));
                 if let Some(item) = data {
                     let item = item.unwrap();
-                    let item = pin!(T::from_body(body::Body::once(item)));
+                    let item = pin!(T::from_body(stream::once(Ok::<_, Infallible>(item))));
                     item.poll(cx).map(Some)
                 } else {
                     Poll::Ready(None)
