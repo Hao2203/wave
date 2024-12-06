@@ -8,9 +8,8 @@ use futures_lite::{
 };
 use tokio_util::codec::{Decoder, Encoder};
 
-pub trait MessageBody: Stream<Item = Result<Self::Data, Self::Error>> + Send + 'static {
+pub trait MessageBody: Stream<Item = Result<Bytes, Self::Error>> + Send + 'static {
     type Error: Into<BoxError>;
-    type Data: Into<Bytes>;
 }
 
 impl<T, E> MessageBody for T
@@ -19,7 +18,6 @@ where
     E: Into<BoxError>,
 {
     type Error = E;
-    type Data = Bytes;
 }
 
 pub struct Body {
@@ -30,7 +28,6 @@ impl Body {
     pub fn new(message_body: impl MessageBody) -> Self {
         let framed_stream = message_body
             .filter_map(|data| {
-                let data = data.map(Into::into);
                 if let Ok(data) = data {
                     if !data.is_empty() {
                         Some(Ok(data))
