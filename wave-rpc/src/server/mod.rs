@@ -1,20 +1,20 @@
 #![allow(unused)]
 use crate::{
     error::{Error, Result},
-    message::{FromReader, SendTo},
     request::Request,
     response::Response,
-    service::Service,
+    transport::Connection,
 };
 use async_trait::async_trait;
-use futures::{AsyncRead, AsyncWrite};
+use futures_lite::future::Boxed;
 use std::sync::Arc;
+use tower::Service;
 use tracing::{instrument, trace, Level};
 
 pub mod context;
 pub mod fut;
 pub mod handler;
-pub mod service;
+// pub mod service;
 
 pub struct RpcServer {
     max_body_size: usize,
@@ -25,24 +25,12 @@ impl RpcServer {
         Self { max_body_size }
     }
 
-    #[instrument(skip_all, level = Level::TRACE, err(level = Level::WARN))]
-    pub async fn serve<'a, Req, Resp>(
+    // #[instrument(skip_all, level = Level::TRACE, err(level = Level::WARN))]
+    pub fn serve<Resp>(
         &self,
-        service: impl Service<Req, Response = Resp, Error = Error> + Send + Sync + 'a,
-        mut io: (impl AsyncRead + AsyncWrite + Send + Unpin),
-    ) -> Result<()>
-    where
-        Req: for<'b> FromReader<'b, Error: Into<Error>>,
-        Resp: SendTo<Error: Into<Error>>,
-    {
-        let req = Req::from_reader(&mut io).await.map_err(Into::into)?;
-        let mut res = service.call(req).await?;
-        res.send_to(&mut io).await.map_err(Into::into)?;
-
-        Ok(())
+        service: impl Service<Request, Response = Response, Error = Error> + Send + Sync,
+        mut io: Connection,
+    ) -> Boxed<Result<()>> {
+        todo!()
     }
 }
-
-pub trait Io: AsyncRead + AsyncWrite + Send + Unpin {}
-
-impl<T> Io for T where T: AsyncRead + AsyncWrite + Send + Unpin {}

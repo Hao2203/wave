@@ -10,16 +10,6 @@ pub trait ServiceDef {
     const ID: u32;
 }
 
-pub trait Service<Req> {
-    type Response;
-    type Error: core::error::Error + Send + Sync + 'static;
-
-    fn call(
-        &self,
-        req: Req,
-    ) -> impl Future<Output = Result<Self::Response, Self::Error>> + Send + 'static;
-}
-
 #[derive(
     Debug,
     Copy,

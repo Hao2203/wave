@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 
-tokio = { workspace = true, features = ["macros", "io-util"] }
+tokio = { workspace = true, features = ["macros"] }
 tokio-util = { version = "0.7", features = ["codec", "compat"] }
 tokio-stream = { version = "0.1" }
 bytes = { version = "1.7" }
@@ -30,6 +29,8 @@ zerocopy = { version = "0.8", features = ["derive"] }
 deadpool = { version = "0.12", features = ["rt_tokio_1"] }
 
 tracing = { version = "0.1" }
+
+tower = { version = "0.5" }
 
 derive_more = { version = "1.0.0-beta.7", features = [
     "error",

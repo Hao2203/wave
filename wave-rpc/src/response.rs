@@ -8,17 +8,17 @@ use crate::{
     message::FromBody,
 };
 
-pub struct Response<T> {
+pub struct Response {
     code: Code,
-    body: T,
+    body: Body,
 }
 
-impl<T> Response<T> {
-    pub fn new(code: Code, body: T) -> Self {
+impl Response {
+    pub fn new(code: Code, body: Body) -> Self {
         Self { code, body }
     }
 
-    pub fn success(body: T) -> Self {
+    pub fn success(body: Body) -> Self {
         Self::new(Code::Ok, body)
     }
 

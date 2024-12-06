@@ -8,8 +8,9 @@ use futures_lite::{
 };
 use tokio_util::codec::{Decoder, Encoder};
 
-pub trait MessageBody: Stream<Item = Result<Bytes, Self::Error>> + Send + 'static {
+pub trait MessageBody: Stream<Item = Result<Self::Data, Self::Error>> + Send + 'static {
     type Error: Into<BoxError>;
+    type Data: Into<Bytes>;
 }
 
 impl<T, E> MessageBody for T
@@ -18,38 +19,54 @@ where
     E: Into<BoxError>,
 {
     type Error = E;
+    type Data = Bytes;
 }
 
 pub struct Body {
-    is_end_of_stream: bool,
     framed_stream: Boxed<Result<Frame, BoxError>>,
 }
 
 impl Body {
     pub fn new(message_body: impl MessageBody) -> Self {
         let framed_stream = message_body
-            .filter(|data| {
+            .filter_map(|data| {
+                let data = data.map(Into::into);
                 if let Ok(data) = data {
-                    !data.is_empty() // if empty, remove it
+                    if !data.is_empty() {
+                        Some(Ok(data))
+                    } else {
+                        None
+                    } // if empty, remove ith
                 } else {
-                    true // if error, we don't care
+                    Some(data) // if error, we don't care
                 }
             })
             .map(|data| data.map(Frame::new).map_err(Into::into))
             .chain(stream::once(Ok(Frame::new_empty()))) // end of stream
             .boxed();
-        Self {
-            is_end_of_stream: false,
-            framed_stream,
-        }
+        Self { framed_stream }
     }
 
     pub fn once(data: Bytes) -> Self {
         Self::new(stream::once(Ok::<_, Error>(data)))
     }
 
-    pub fn is_end_of_stream(&self) -> bool {
-        self.is_end_of_stream
+    pub fn into_bytes_stream(self) -> impl Stream<Item = Result<Bytes, BoxError>> {
+        let mut is_end_of_stream = false;
+        self.framed_stream.filter_map(move |frame| {
+            if is_end_of_stream {
+                None
+            } else {
+                match frame {
+                    Ok(Frame::Data(data)) => Some(Ok(data)),
+                    Ok(Frame::End) => {
+                        is_end_of_stream = true;
+                        None
+                    }
+                    Err(err) => Some(Err(err)),
+                }
+            }
+        })
     }
 
     pub(crate) fn framed_stream(self) -> Boxed<Result<Frame, BoxError>> {
@@ -57,26 +74,12 @@ impl Body {
     }
 }
 
-impl futures_lite::Stream for Body {
-    type Item = Result<Bytes, BoxError>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        // if self.is_end_of_stream {
-        //     return std::task::Poll::Ready(None);
-        // }
-        // let frame = self.framed_stream.poll_next(cx);
-        // frame.map(|f| {
-        //     f.map(|frame| {
-        //         frame.map(|frame| {
-        //             self.is_end_of_stream = frame.is_end_of_stream();
-        //             frame.data
-        //         })
-        //     })
-        // })
-        todo!()
+impl<T> From<T> for Body
+where
+    T: MessageBody,
+{
+    fn from(message_body: T) -> Self {
+        Self::new(message_body)
     }
 }
 
