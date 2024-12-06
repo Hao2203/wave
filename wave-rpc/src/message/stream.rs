@@ -27,7 +27,8 @@ impl<T> FromBody for Stream<T> {
         Self: Sized,
     {
         Ok(Self::Body(
-            body.map(|data| data.map_err(Into::into)).boxed(),
+            body.map(|data| data.map(Into::into).map_err(Into::into))
+                .boxed(),
         ))
     }
 }
@@ -42,7 +43,7 @@ where
             Stream::Stream(stream) => stream
                 .map(|item| item.into_body())
                 .flatten()
-                .map(|item| item.map_err(Into::into))
+                .map(|item| item.map(Into::into).map_err(Into::into))
                 .boxed(),
         }
     }
