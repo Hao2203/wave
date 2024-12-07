@@ -1,12 +1,16 @@
 #![allow(unused)]
-use crate::error::{BoxError, Error, Result};
+use crate::{
+    error::{BoxError, Error, Result},
+    transport::ConnectionManager,
+};
+use async_compat::CompatExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_lite::{
     stream::{self, Boxed},
-    AsyncWrite, Stream, StreamExt as _,
+    AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt as _,
 };
-use std::sync::Arc;
-use tokio_util::codec::{Decoder, Encoder};
+use std::{io, sync::Arc};
+use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 pub trait MessageBody: Stream<Item = Result<Arc<[u8]>, Self::Error>> + Send + 'static {
     type Error: Into<BoxError>;
@@ -21,12 +25,12 @@ where
 }
 
 pub struct Body {
-    framed_stream: Boxed<Result<Frame, BoxError>>,
+    frame_stream: Boxed<Result<Frame, BoxError>>,
 }
 
 impl Body {
     pub fn new(message_body: impl MessageBody) -> Self {
-        let framed_stream = message_body
+        let frame_stream = message_body
             .filter_map(|data| {
                 if let Ok(data) = data {
                     if !data.is_empty() {
@@ -41,16 +45,37 @@ impl Body {
             .map(|data| data.map(Frame::new).map_err(Into::into))
             .chain(stream::once(Ok(Frame::new_empty()))) // end of stream
             .boxed();
-        Self { framed_stream }
+        Self { frame_stream }
     }
 
     pub fn once(data: Arc<[u8]>) -> Self {
         Self::new(stream::once(Ok::<_, Error>(data)))
     }
 
+    pub(crate) fn from_reader(reader: impl AsyncRead + Unpin + Send + 'static) -> Self {
+        let frame_stream = FramedRead::new(reader.compat(), FrameCodec)
+            .map(|frame| frame.map_err(Into::into))
+            .boxed();
+        Self { frame_stream }
+    }
+
+    pub(crate) async fn write_into(
+        &mut self,
+        writer: &mut (impl AsyncWrite + Unpin),
+    ) -> Result<(), BoxError> {
+        let mut encoder = Frame::codec();
+        while let Some(frame) = self.frame_stream.next().await {
+            let frame = frame?;
+            let mut buf = BytesMut::new();
+            encoder.encode(frame, &mut buf);
+            writer.write_all(&buf).await?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn into_bytes_stream(self) -> impl Stream<Item = Result<Bytes, BoxError>> {
         let mut is_end_of_stream = false;
-        self.framed_stream.filter_map(move |frame| {
+        self.frame_stream.filter_map(move |frame| {
             if is_end_of_stream {
                 None
             } else {
@@ -67,7 +92,7 @@ impl Body {
     }
 
     pub(crate) fn framed_stream(self) -> Boxed<Result<Frame, BoxError>> {
-        self.framed_stream
+        self.frame_stream
     }
 }
 
@@ -90,8 +115,27 @@ impl Frame {
     const SIZE_LEN: usize = 4;
     const EOS_LEN: usize = 1;
 
+    pub(crate) fn codec() -> FrameCodec {
+        FrameCodec
+    }
+
     pub fn new(data: Arc<[u8]>) -> Frame {
         Frame::Data(Bytes::from_owner(data))
+    }
+
+    pub(crate) async fn from_connection_reader(
+        reader: &mut ConnectionManager,
+    ) -> crate::error::Result<Frame> {
+        let eos = reader.get_u8().await?;
+        match eos {
+            0 => Ok(Frame::End),
+            1 => {
+                let data_size = reader.get_u32().await?;
+                let data = reader.read(data_size as usize).await?;
+                Ok(Frame::Data(data.into()))
+            }
+            _ => Err(io::Error::from(io::ErrorKind::InvalidData).into()),
+        }
     }
 
     pub fn new_empty() -> Frame {

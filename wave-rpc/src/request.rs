@@ -8,8 +8,10 @@ use crate::{
 };
 use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
+use futures_lite::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use std::{
     convert::Infallible,
+    io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -25,17 +27,9 @@ pub struct Request {
 }
 
 impl Request {
-    // pub fn new<S>(req: S::Request<'a>, service_version: impl Into<Version>) -> Result<Self>
-    // where
-    //     S: ServiceDef,
-    //     S::Request<'a>: FromReader<'a>,
-    // {
-    //     let header = Header {
-    //         service_id: S::ID,
-    //         service_version: service_version.into().into(),
-    //     };
-    //     todo!()
-    // }
+    pub fn new(header: Header, body: Body) -> Self {
+        Self { header, body }
+    }
 
     pub fn header(&self) -> &Header {
         &self.header
@@ -58,44 +52,6 @@ impl Request {
     }
 }
 
-// #[async_trait]
-// impl<'a, T> FromReader<'a> for Request<T>
-// where
-//     T: FromReader<'a> + Send,
-// {
-//     type Error = std::io::Error;
-
-//     async fn from_reader(
-//         mut reader: impl AsyncRead + Send + Unpin + 'a,
-//     ) -> Result<Self, Self::Error>
-//     where
-//         Self: Sized,
-//     {
-//         let header = Header::from_reader(&mut reader).await?;
-//         let body = T::from_reader(reader)
-//             .await
-//             .map_err(|e| std::io::ErrorKind::InvalidData)?;
-//         Ok(Self { header, body })
-//     }
-// }
-
-// #[async_trait]
-// impl<T> SendTo for Request<T>
-// where
-//     T: SendTo + Send,
-// {
-//     type Error = std::io::Error;
-
-//     async fn send_to(
-//         &mut self,
-//         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
-//     ) -> std::result::Result<(), Self::Error> {
-//         self.header.send_to(io).await?;
-//         self.body.send_to(io).await.unwrap();
-//         Ok(())
-//     }
-// }
-
 #[derive(Debug, Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[repr(C, packed)]
 pub struct Header {
@@ -111,35 +67,35 @@ impl Header {
     pub fn as_bytes(&self) -> &[u8] {
         <Self as IntoBytes>::as_bytes(self)
     }
+
+    pub(crate) async fn from_reader(reader: &mut (impl AsyncRead + Unpin)) -> Result<Self> {
+        let mut buf = Self::BUFFER;
+        reader.read_exact(&mut buf).await?;
+        Ok(Header::try_read_from_bytes(&buf)?)
+    }
 }
 
 pub(crate) struct HeaderCodec;
 
-// #[async_trait]
-// impl FromReader<'_> for Header {
-//     type Error = std::io::Error;
+impl Decoder for HeaderCodec {
+    type Item = Header;
+    type Error = io::Error;
 
-//     async fn from_reader(mut reader: impl AsyncRead + Send + Unpin) -> Result<Self, Self::Error> {
-//         let mut header_buf = Header::BUFFER;
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if buf.len() < Header::SIZE {
+            return Ok(None);
+        }
+        let header = Header::try_read_from_bytes(&buf.split_to(Header::SIZE).freeze())
+            .map_err(|e| io::Error::from(io::ErrorKind::InvalidData))?;
+        Ok(Some(header))
+    }
+}
 
-//         reader.read_exact(&mut header_buf).await?;
+impl Encoder<Header> for HeaderCodec {
+    type Error = io::Error;
 
-//         let header: Header = Header::try_read_from_bytes(&header_buf)
-//             .map_err(|e| std::io::ErrorKind::InvalidData)?;
-
-//         Ok(header)
-//     }
-// }
-
-// #[async_trait]
-// impl SendTo for Header {
-//     type Error = std::io::Error;
-
-//     async fn send_to(
-//         &mut self,
-//         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
-//     ) -> std::result::Result<(), Self::Error> {
-//         let header_bytes = self.as_bytes();
-//         io.write_all(header_bytes).await
-//     }
-// }
+    fn encode(&mut self, item: Header, buf: &mut BytesMut) -> Result<(), Self::Error> {
+        buf.extend_from_slice(item.as_bytes());
+        Ok(())
+    }
+}

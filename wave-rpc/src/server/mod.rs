@@ -1,13 +1,16 @@
 #![allow(unused)]
 use crate::{
+    body::{Body, Frame},
     error::{Error, Result},
-    request::Request,
+    request::{Header, Request},
     response::Response,
-    transport::Connection,
+    transport::{Connection, ConnectionManager},
 };
+use async_compat::CompatExt;
 use async_trait::async_trait;
-use futures_lite::future::Boxed;
-use std::sync::Arc;
+use futures_lite::{future::Boxed, io, AsyncRead, AsyncWrite, StreamExt};
+use std::{future::Future, pin::pin, sync::Arc};
+use tokio_util::codec::FramedRead;
 use tower::Service;
 use tracing::{instrument, trace, Level};
 
@@ -16,6 +19,7 @@ pub mod fut;
 pub mod handler;
 // pub mod service;
 
+#[derive(Debug, Clone)]
 pub struct RpcServer {
     max_body_size: usize,
 }
@@ -26,11 +30,25 @@ impl RpcServer {
     }
 
     // #[instrument(skip_all, level = Level::TRACE, err(level = Level::WARN))]
-    pub fn serve<Resp>(
+    pub fn serve<Resp, S>(
         &self,
-        service: impl Service<Request, Response = Response, Error = Error> + Send + Sync,
-        mut io: Connection,
-    ) -> Boxed<Result<()>> {
-        todo!()
+        mut service: S,
+        mut io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    ) -> impl Future<Output = Result<()>> + Send + 'static
+    where
+        <S as Service<Request>>::Future: std::marker::Send,
+        S: Service<Request, Response = Response, Error = Error> + Send + Sync + 'static,
+    {
+        let (mut reader, mut writer) = io::split(io);
+
+        async move {
+            let header = Header::from_reader(&mut reader).await?;
+            let body = Body::from_reader(reader);
+            let req = Request::new(header, body);
+            let res = service.call(req).await?;
+            res.write_into(&mut writer).await?;
+
+            Ok(())
+        }
     }
 }

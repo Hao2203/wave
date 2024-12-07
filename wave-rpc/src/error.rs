@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use derive_more::derive::Display;
 use std::any::Any;
 use std::fmt::{Debug, Display};
+use std::io;
+use zerocopy::TryFromBytes;
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -61,7 +63,7 @@ impl Error {
 //     }
 // }
 
-pub trait RpcError: Display + Debug {
+pub trait RpcError: Display + Debug + Send + Sync + 'static {
     fn code(&self) -> Code;
 
     fn message(&self) -> String {
@@ -74,6 +76,15 @@ impl<T: RpcError + Send + Sync + 'static> From<T> for Error {
         Self {
             cause: Box::new(err),
         }
+    }
+}
+
+impl<Src, Dst> From<zerocopy::TryReadError<Src, Dst>> for Error
+where
+    Dst: ?Sized + TryFromBytes,
+{
+    fn from(err: zerocopy::TryReadError<Src, Dst>) -> Self {
+        io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", err)).into()
     }
 }
 

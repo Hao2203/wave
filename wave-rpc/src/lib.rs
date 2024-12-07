@@ -12,3 +12,5 @@ pub mod message;
 pub mod transport;
 
 pub use service::ServiceDef;
+
+pub use error::Result;
