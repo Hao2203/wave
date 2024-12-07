@@ -1,7 +1,5 @@
-// #![allow(unused)]
 use super::{FromBody, IntoBody};
 use crate::{body::MessageBody, error::BoxError};
-use bytes::Bytes;
 use futures_lite::{
     ready,
     stream::{self, Boxed},
@@ -11,11 +9,12 @@ use std::{
     convert::Infallible,
     future::Future,
     pin::{pin, Pin},
+    sync::Arc,
     task::{Context, Poll},
 };
 
 pub enum Stream<T> {
-    Body(Boxed<Result<Bytes, BoxError>>),
+    Body(Boxed<Result<Arc<[u8]>, BoxError>>),
     Stream(Boxed<T>),
 }
 
