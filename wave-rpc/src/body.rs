@@ -60,7 +60,7 @@ impl Body {
     }
 
     pub(crate) async fn write_into(
-        &mut self,
+        mut self,
         writer: &mut (impl AsyncWrite + Unpin),
     ) -> Result<(), BoxError> {
         let mut encoder = Frame::codec();

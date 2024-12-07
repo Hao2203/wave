@@ -1,7 +1,7 @@
 #![allow(unused)]
 use crate::{
     body::{Body, Frame},
-    error::{Error, Result},
+    error::{BoxError, Error, Result},
     request::{Header, Request},
     response::Response,
     transport::{Connection, ConnectionManager},
@@ -34,7 +34,7 @@ impl RpcServer {
         &self,
         mut service: S,
         mut io: impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    ) -> impl Future<Output = Result<()>> + Send + 'static
+    ) -> impl Future<Output = Result<(), BoxError>> + Send + 'static
     where
         <S as Service<Request>>::Future: std::marker::Send,
         S: Service<Request, Response = Response, Error = Error> + Send + Sync + 'static,

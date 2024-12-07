@@ -4,7 +4,7 @@ use std::io;
 use crate::message::FromBody;
 use async_trait::async_trait;
 use derive_more::derive::Display;
-use futures_lite::AsyncWrite;
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use zerocopy::{Immutable, IntoBytes, TryFromBytes};
 
 #[derive(
@@ -30,30 +30,18 @@ pub enum Code {
 impl Code {
     const SIZE: usize = 4;
     const BUFFER: [u8; Self::SIZE] = [0u8; Self::SIZE];
+
+    pub(crate) async fn from_reader(reader: &mut (impl AsyncRead + Unpin)) -> crate::Result<Self> {
+        let mut buf = Self::BUFFER;
+        reader.read_exact(&mut buf).await?;
+        Ok(Code::try_read_from_bytes(&buf)?)
+    }
+
+    pub(crate) async fn write_into(
+        self,
+        writer: &mut (impl AsyncWrite + Unpin),
+    ) -> crate::Result<(), io::Error> {
+        writer.write_all(self.as_bytes()).await?;
+        Ok(())
+    }
 }
-
-// #[async_trait::async_trait]
-// impl FromReader<'_> for Code {
-//     type Error = std::io::Error;
-
-//     async fn from_reader(
-//         mut reader: impl futures::AsyncRead + Send + Unpin,
-//     ) -> Result<Self, Self::Error> {
-//         let mut buf = Code::BUFFER;
-//         reader.read_exact(&mut buf).await?;
-//         let code = Code::try_read_from_bytes(&buf).map_err(|_| std::io::ErrorKind::InvalidData)?;
-//         Ok(code)
-//     }
-// }
-
-// #[async_trait]
-// impl SendTo for Code {
-//     type Error = std::io::Error;
-//     async fn send_to(
-//         &mut self,
-//         io: &mut (dyn AsyncWrite + Send + Unpin),
-//     ) -> Result<(), Self::Error> {
-//         io.write_all(self.as_bytes()).await?;
-//         Ok(())
-//     }
-// }

@@ -1,12 +1,12 @@
 #![allow(unused)]
 
-use futures_lite::{AsyncWrite, AsyncWriteExt};
+use futures_lite::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use zerocopy::IntoBytes;
 
 use crate::{
     body::Body,
     code::Code,
-    error::{Error, Result},
+    error::{BoxError, Error, Result},
     message::FromBody,
 };
 
@@ -32,8 +32,21 @@ impl Response {
         self.code == Code::Ok
     }
 
-    pub(crate) async fn write_into(self, writer: &mut (impl AsyncWrite + Unpin)) -> Result<()> {
-        writer.write_all(self.code.as_bytes()).await?;
-        todo!()
+    pub(crate) async fn from_reader(
+        mut reader: impl AsyncRead + Unpin + Send + 'static,
+    ) -> Result<Self> {
+        let code = Code::from_reader(&mut reader).await?;
+        let body = Body::from_reader(reader);
+        Ok(Response { code, body })
+    }
+
+    pub(crate) async fn write_into(
+        self,
+        writer: &mut (impl AsyncWrite + Unpin),
+    ) -> Result<(), BoxError> {
+        let Self { code, body } = self;
+        code.write_into(writer).await?;
+        body.write_into(writer).await?;
+        Ok(())
     }
 }
