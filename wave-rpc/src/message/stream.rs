@@ -1,32 +1,41 @@
 use super::{FromBody, IntoBody};
 use crate::{body::MessageBody, error::BoxError};
+use derive_more::derive::From;
 use futures_lite::{
-    ready,
     stream::{self, Boxed},
     StreamExt,
 };
-use std::{
-    convert::Infallible,
-    future::Future,
-    pin::{pin, Pin},
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::{convert::Infallible, sync::Arc};
 
 pub enum Stream<T> {
-    Body(Boxed<Result<Arc<[u8]>, BoxError>>),
+    Body(Boxed<Result<Arc<[u8]>, Error>>),
     Stream(Boxed<T>),
 }
 
-impl<T> FromBody for Stream<T> {
+#[derive(Debug, From)]
+pub struct Error(pub BoxError);
+
+impl From<Error> for BoxError {
+    fn from(value: Error) -> Self {
+        value.0
+    }
+}
+
+impl<T, Ctx> FromBody for Stream<T>
+where
+    T: FromBody<Ctx = Ctx> + Send + Sized + 'static,
+    Ctx: Send,
+{
+    type Ctx = Ctx;
     type Error = Infallible;
 
-    async fn from_body(body: impl MessageBody) -> Result<Self, Self::Error>
+    async fn from_body(_ctx: &mut Self::Ctx, body: impl MessageBody) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
         Ok(Self::Body(
-            body.map(|data| data.map_err(Into::into)).boxed(),
+            body.map(|data| data.map_err(Into::into).map_err(Into::into))
+                .boxed(),
         ))
     }
 }
@@ -41,34 +50,32 @@ where
             Stream::Stream(stream) => stream
                 .map(|item| item.into_body())
                 .flatten()
-                .map(|item| item.map_err(Into::into))
+                .map(|item| item.map_err(Into::into).map_err(Into::into))
                 .boxed(),
         }
     }
 }
 
-impl<T, E> futures_lite::Stream for Stream<T>
+impl<T> Stream<T>
 where
-    T: Send + FromBody<Error = E> + Sized,
+    T: FromBody<Ctx: Send> + Send + Sized + 'static,
 {
-    type Item = Result<T, E>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            Self::Body(body) => {
-                let data = ready!(body.poll_next(cx));
-                if let Some(item) = data {
-                    let item = item.unwrap();
-                    let item = pin!(T::from_body(stream::once(Ok::<_, Infallible>(item))));
-                    item.poll(cx).map(Some)
+    pub fn make_stream(
+        self,
+        ctx: &mut T::Ctx,
+    ) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin + use<'_, T> {
+        match self {
+            Stream::Body(body) => stream::unfold((ctx, body), |(ctx, mut body)| async {
+                if let Some(data) = body.next().await {
+                    let item = T::from_body(ctx, stream::once(data)).await;
+                    Some((item, (ctx, body)))
                 } else {
-                    Poll::Ready(None)
+                    None
                 }
-            }
-            Self::Stream(stream) => {
-                let data = ready!(stream.poll_next(cx));
-                Poll::Ready(data.map(Ok))
-            }
+            })
+            .boxed(),
+            //  as BoxStream<'_, Result<T, T::Error>>,
+            Stream::Stream(stream) => stream.map(Ok).boxed(),
         }
     }
 }

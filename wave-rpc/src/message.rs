@@ -4,9 +4,13 @@ use std::future::Future;
 pub mod stream;
 
 pub trait FromBody {
+    type Ctx;
     type Error: core::error::Error + Send;
 
-    fn from_body(body: impl MessageBody) -> impl Future<Output = Result<Self, Self::Error>> + Send
+    fn from_body(
+        ctx: &mut Self::Ctx,
+        body: impl MessageBody,
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;
 }

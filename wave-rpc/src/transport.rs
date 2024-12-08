@@ -7,11 +7,11 @@ use futures_lite::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _}
 use std::{future::Future, io, pin::Pin, sync::Arc};
 
 pub struct Connection {
-    io: Pin<Box<dyn Transport + Send>>,
+    io: Pin<Box<dyn Transport>>,
 }
 
 impl Connection {
-    pub fn new(io: impl AsyncRead + AsyncWrite + Send + 'static) -> Self {
+    pub fn new(io: impl Transport + 'static) -> Self {
         Self { io: Box::pin(io) }
     }
 }
@@ -44,9 +44,9 @@ pub enum Command {
     Close,
 }
 
-trait Transport: AsyncRead + AsyncWrite {}
+pub trait Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 
-impl<T: AsyncRead + AsyncWrite> Transport for T {}
+impl<T> Transport for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {}
 
 #[derive(Debug, Clone)]
 pub struct ConnectionManager {

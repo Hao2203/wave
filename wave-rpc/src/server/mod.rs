@@ -4,7 +4,7 @@ use crate::{
     error::{BoxError, Error, Result},
     request::{Header, Request},
     response::Response,
-    transport::{Connection, ConnectionManager},
+    transport::{Connection, ConnectionManager, Transport},
 };
 use async_compat::CompatExt;
 use async_trait::async_trait;
@@ -18,6 +18,13 @@ pub mod context;
 pub mod fut;
 pub mod handler;
 // pub mod service;
+
+pub trait ServerApp {
+    fn process_connection(
+        self: &Arc<Self>,
+        conn: Box<dyn Transport>,
+    ) -> impl Future<Output = Option<Box<dyn Transport>>> + Send;
+}
 
 #[derive(Debug, Clone)]
 pub struct RpcServer {

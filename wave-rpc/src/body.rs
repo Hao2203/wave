@@ -9,17 +9,22 @@ use futures_lite::{
     stream::{self, Boxed},
     AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt as _,
 };
-use std::{io, sync::Arc};
+use std::{io, pin::Pin, sync::Arc};
 use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
-pub trait MessageBody: Stream<Item = Result<Arc<[u8]>, Self::Error>> + Send + 'static {
-    type Error: Into<BoxError>;
+pub type BoxMessageBody =
+    Pin<Box<dyn MessageBody<Error = BoxError, Item = Result<Arc<[u8]>, BoxError>>>>;
+
+pub trait MessageBody:
+    Stream<Item = Result<Arc<[u8]>, Self::Error>> + Unpin + Send + 'static
+{
+    type Error: Into<BoxError> + Send + Sync;
 }
 
 impl<T, E> MessageBody for T
 where
-    T: Stream<Item = Result<Arc<[u8]>, E>> + Send + 'static,
-    E: Into<BoxError>,
+    T: Stream<Item = Result<Arc<[u8]>, E>> + Send + 'static + Unpin,
+    E: Into<BoxError> + Send + Sync,
 {
     type Error = E;
 }
