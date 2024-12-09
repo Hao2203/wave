@@ -1,14 +1,11 @@
+use futures_lite::future;
 use std::sync::Arc;
 
-pub trait ContextFactory<Ctx> {
-    fn create_context(&self) -> Ctx;
-}
+pub trait ContextFactory {
+    type Ctx: Send;
+    fn create_context(&self) -> Self::Ctx;
 
-impl<T, Ctx> ContextFactory<Ctx> for Arc<T>
-where
-    T: ContextFactory<Ctx>,
-{
-    fn create_context(&self) -> Ctx {
-        T::create_context(self)
+    fn cleanup_context(&self, _ctx: Self::Ctx) -> impl std::future::Future<Output = ()> + Send {
+        future::ready(())
     }
 }

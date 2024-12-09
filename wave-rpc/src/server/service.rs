@@ -14,8 +14,8 @@ use futures_lite::future;
 use std::{collections::BTreeMap, future::Future, sync::Arc};
 
 pub struct RpcServiceBuilder<S> {
-    map: BTreeMap<ServiceKey, Box<dyn RpcHandler<S> + Send + Sync>>,
-    state: S,
+    map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
+    state: Arc<S>,
     version: Version,
 }
 
@@ -24,13 +24,13 @@ impl RpcServiceBuilder<()> {
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
-            state: (),
+            state: ().into(),
             version: Default::default(),
         }
     }
 }
 impl<State> RpcServiceBuilder<State> {
-    pub fn with_state(state: State) -> Self {
+    pub fn with_state(state: Arc<State>) -> Self {
         Self {
             map: BTreeMap::new(),
             state,
@@ -51,28 +51,29 @@ impl<State> RpcServiceBuilder<State> {
         self
     }
 
-    // pub fn register<S>(
-    //     mut self,
-    //     f: impl for<'a> Handle<State, S::Request, Response = S::Response>,
-    // ) -> Self
-    // where
-    //     State: Send + Sync + Clone + 'static,
-    //     S: ServiceDef + Send + Sync + 'static,
-    //     <S as ServiceDef>::Request: for<'b> FromReader<'b, Error: Into<Error>> + Send + 'static,
-    //     <S as ServiceDef>::Response: SendTo<Error: Into<Error>> + Send + Sync + 'static,
-    // {
-    //     let id = S::ID;
-    //     let key = ServiceKey::new(id, self.version);
-    //     self.map.insert(
-    //         key,
-    //         Box::new(FnHandler {
-    //             f,
-    //             state: self.state.clone(),
-    //             _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
-    //         }),
-    //     );
-    //     self
-    // }
+    pub fn register<S, Ctx>(
+        mut self,
+        f: impl Handle<Ctx, S::Request, Response = S::Response>,
+    ) -> Self
+    where
+        State: ContextFactory<Ctx = Ctx> + Send + Sync + 'static,
+        Ctx: Send,
+        S: ServiceDef,
+        <S as ServiceDef>::Request: FromBody<Ctx> + Send + 'static,
+        <S as ServiceDef>::Response: IntoBody + Send + Sync + 'static,
+    {
+        let id = S::ID;
+        let key = ServiceKey::new(id, self.version);
+        self.map.insert(
+            key,
+            Box::new(FnHandler {
+                f,
+                state: self.state.clone(),
+                _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
+            }),
+        );
+        self
+    }
 
     // pub fn merge(mut self, other: RpcService) -> Self {
     //     self.map.extend(other.map);
@@ -126,31 +127,32 @@ where
 }
 
 #[async_trait]
-pub trait RpcHandler<S> {
-    async fn call(&self, state: &S, req: Request) -> Result<Response>;
+pub trait RpcHandler {
+    async fn call(&self, req: Request) -> Result<Response>;
 }
 
-struct FnHandler<F, Ctx, Req, Resp> {
+struct FnHandler<F, S, Req, Resp> {
     f: F,
-    _ctx: std::marker::PhantomData<fn() -> Ctx>,
+    state: Arc<S>,
     _service: std::marker::PhantomData<fn() -> (Req, Resp)>,
 }
 
 #[async_trait]
-impl<S, Ctx, F, Req, Resp> RpcHandler<S> for FnHandler<F, Ctx, Req, Resp>
+impl<S, Ctx, F, Req, Resp> RpcHandler for FnHandler<F, S, Req, Resp>
 where
-    S: ContextFactory<Ctx> + Send + std::marker::Sync,
+    S: ContextFactory<Ctx = Ctx> + Send + std::marker::Sync,
     F: Handle<Ctx, Req, Response = Resp>,
     Req: FromBody<Ctx> + Send,
     Resp: IntoBody + Send,
     Ctx: Send,
 {
-    async fn call(&self, state: &S, req: Request) -> Result<Response> {
-        let mut ctx = state.create_context();
+    async fn call(&self, req: Request) -> Result<Response> {
+        let mut ctx = self.state.create_context();
         let body = req.into_body().into_message_body();
         let req = Req::from_body(&mut ctx, body).await.map_err(Into::into)?;
         let resp = self.f.call(&mut ctx, req).await;
         let resp = Response::new(Code::Ok, resp.into_body().into());
+        self.state.cleanup_context(ctx).await;
         Ok(resp)
     }
 }
