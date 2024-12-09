@@ -1,10 +1,20 @@
 #![allow(unused)]
 use crate::{code::Code, error::RpcError};
 use async_channel::{Receiver, RecvError, SendError, Sender};
+use async_trait::async_trait;
 use bytes::Buf;
 use derive_more::derive::{Display, From};
 use futures_lite::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use std::{future::Future, io, pin::Pin, sync::Arc};
+
+pub trait Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
+
+impl<T> Transport for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {}
+
+#[async_trait]
+pub trait Reader: Send {
+    async fn read_io(&mut self, io: &mut (dyn AsyncRead + Unpin)) -> Result<(), io::Error>;
+}
 
 pub struct Connection {
     io: Pin<Box<dyn Transport>>,
@@ -17,14 +27,11 @@ impl Connection {
 }
 
 impl Connection {
-    pub async fn process(mut self, receiver: Receiver<Command>) -> Result<(), Error> {
+    pub async fn process(&mut self, receiver: Receiver<Command>) -> Result<(), io::Error> {
         while let Ok(cmd) = receiver.recv().await {
             match cmd {
-                Command::Read(len, mut tx) => {
-                    let mut buf = Vec::with_capacity(len);
-                    self.io.read_exact(&mut buf).await?;
-
-                    tx.send(buf)?
+                Command::Read(mut reader) => {
+                    reader.read_io(&mut self.io).await?;
                 }
                 Command::Write(buf) => {
                     self.io.write_all(&buf).await?;
@@ -39,14 +46,10 @@ impl Connection {
 }
 
 pub enum Command {
-    Read(usize, oneshot::Sender<Vec<u8>>),
+    Read(Box<dyn Reader>),
     Write(Arc<[u8]>),
     Close,
 }
-
-pub trait Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
-
-impl<T> Transport for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {}
 
 #[derive(Debug, Clone)]
 pub struct ConnectionManager {
@@ -62,10 +65,7 @@ impl ConnectionManager {
     /// Not guaranteed to return exactly `len` bytes.
     /// Returns an error if the underlying connection is closed.
     pub async fn read(&self, len: usize) -> Result<Vec<u8>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.sender.send(Command::Read(len, tx)).await?;
-        let res = rx.await?;
-        Ok(res)
+        todo!()
     }
 
     pub async fn get_u8(&self) -> Result<u8, Error> {
