@@ -21,15 +21,13 @@ impl From<Error> for BoxError {
     }
 }
 
-impl<T, Ctx> FromBody for Stream<T>
+impl<T, Ctx> FromBody<Ctx> for Stream<T>
 where
-    T: FromBody<Ctx = Ctx> + Send + Sized + 'static,
     Ctx: Send,
 {
-    type Ctx = Ctx;
     type Error = Infallible;
 
-    async fn from_body(_ctx: &mut Self::Ctx, body: impl MessageBody) -> Result<Self, Self::Error>
+    async fn from_body(_ctx: &mut Ctx, body: impl MessageBody) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -56,14 +54,15 @@ where
     }
 }
 
-impl<T> Stream<T>
-where
-    T: FromBody<Ctx: Send> + Send + Sized + 'static,
-{
-    pub fn make_stream(
+impl<T> Stream<T> {
+    pub fn make_stream<Ctx>(
         self,
-        ctx: &mut T::Ctx,
-    ) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin + use<'_, T> {
+        ctx: &mut Ctx,
+    ) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin + use<'_, Ctx, T>
+    where
+        T: FromBody<Ctx> + 'static,
+        Ctx: Send,
+    {
         match self {
             Stream::Body(body) => stream::unfold((ctx, body), |(ctx, mut body)| async {
                 if let Some(data) = body.next().await {

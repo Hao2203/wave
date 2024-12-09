@@ -78,14 +78,16 @@ impl Body {
         Ok(())
     }
 
-    pub(crate) fn into_bytes_stream(self) -> impl Stream<Item = Result<Bytes, BoxError>> {
+    pub(crate) fn into_message_body(
+        self,
+    ) -> impl MessageBody<Error = BoxError, Item = Result<Arc<[u8]>, BoxError>> {
         let mut is_end_of_stream = false;
         self.frame_stream.filter_map(move |frame| {
             if is_end_of_stream {
                 None
             } else {
                 match frame {
-                    Ok(Frame::Data(data)) => Some(Ok(data)),
+                    Ok(Frame::Data(data)) => Some(Ok(Vec::from(data).into())),
                     Ok(Frame::End) => {
                         is_end_of_stream = true;
                         None

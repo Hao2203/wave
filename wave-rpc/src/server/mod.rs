@@ -17,7 +17,7 @@ use tracing::{instrument, trace, Level};
 pub mod context;
 pub mod fut;
 pub mod handler;
-// pub mod service;
+pub mod service;
 
 pub trait ServerApp {
     fn process_connection(

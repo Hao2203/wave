@@ -4,6 +4,7 @@ use async_channel::SendError;
 use async_trait::async_trait;
 use derive_more::derive::Display;
 use std::any::Any;
+use std::convert::Infallible;
 use std::fmt::{Debug, Display};
 use std::io;
 use zerocopy::TryFromBytes;
@@ -85,6 +86,12 @@ where
 {
     fn from(err: zerocopy::TryReadError<Src, Dst>) -> Self {
         io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", err)).into()
+    }
+}
+
+impl From<Infallible> for Error {
+    fn from(err: Infallible) -> Self {
+        panic!("{:?}", err)
     }
 }
 

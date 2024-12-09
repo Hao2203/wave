@@ -50,6 +50,10 @@ impl Request {
     pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
     }
+
+    pub fn into_body(self) -> Body {
+        self.body
+    }
 }
 
 #[derive(Debug, Clone, Copy, TryFromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
