@@ -1,12 +1,13 @@
-#![allow(unused)]
-use crate::{code::Code, message::FromBody};
-use async_channel::SendError;
-use async_trait::async_trait;
+// #![allow(unused)]
+use crate::code::Code;
 use derive_more::derive::Display;
-use std::any::Any;
-use std::convert::Infallible;
-use std::fmt::{Debug, Display};
-use std::io;
+use std::{
+    any::Any,
+    convert::Infallible,
+    fmt::{Debug, Display},
+    io,
+    sync::Arc,
+};
 use zerocopy::TryFromBytes;
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
@@ -29,46 +30,13 @@ impl Error {
     pub fn code(&self) -> Code {
         self.as_rpc_error().code()
     }
-
-    pub fn message(&self) -> String {
-        self.as_rpc_error().message()
-    }
 }
-
-// impl FromReader<'_> for Error {
-//     type Error = Self;
-
-//     async fn from_reader(
-//         mut reader: impl futures::AsyncRead + Send + Unpin,
-//     ) -> std::result::Result<Self, Self::Error>
-//     where
-//         Self: Sized,
-//     {
-//         let code = Code::from_reader(&mut reader).await?;
-//         let message = String::from_reader(&mut reader).await?;
-//         Ok(ErrorMsg::new(code, message).into())
-//     }
-// }
-
-// #[async_trait]
-// impl SendTo for Error {
-//     type Error = std::io::Error;
-
-//     async fn send_to(
-//         &mut self,
-//         io: &mut (dyn futures::AsyncWrite + Send + Unpin),
-//     ) -> std::result::Result<(), Self::Error> {
-//         self.as_rpc_error().code().send_to(io).await?;
-//         self.as_rpc_error().message().send_to(io).await?;
-//         Ok(())
-//     }
-// }
 
 pub trait RpcError: Display + Debug + Send + Sync + 'static {
     fn code(&self) -> Code;
 
-    fn message(&self) -> String {
-        self.to_string()
+    fn to_bytes(&self) -> Arc<[u8]> {
+        Arc::from(self.to_string().as_bytes())
     }
 }
 
@@ -99,6 +67,10 @@ impl RpcError for std::io::Error {
     fn code(&self) -> Code {
         Code::IoError
     }
+
+    fn to_bytes(&self) -> Arc<[u8]> {
+        Arc::from(self.to_string().as_bytes())
+    }
 }
 
 #[derive(Debug, Display)]
@@ -117,5 +89,9 @@ impl ErrorMsg {
 impl RpcError for ErrorMsg {
     fn code(&self) -> Code {
         self.code
+    }
+
+    fn to_bytes(&self) -> Arc<[u8]> {
+        Arc::from(self.to_string().as_bytes())
     }
 }
