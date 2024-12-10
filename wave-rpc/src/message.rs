@@ -2,6 +2,8 @@ use crate::{body::MessageBody, error::Error};
 use futures_lite::stream::StreamExt;
 use std::{future::Future, sync::Arc};
 
+#[cfg(feature = "bincode")]
+pub mod bincode;
 pub mod stream;
 
 pub trait FromBody<Ctx> {
@@ -19,7 +21,7 @@ pub trait IntoBody {
     fn into_body(self) -> impl MessageBody;
 }
 
-impl<Ctx: std::marker::Send> FromBody<Ctx> for Arc<[u8]> {
+impl<Ctx: Send> FromBody<Ctx> for Arc<[u8]> {
     type Error = Error;
 
     async fn from_body(_ctx: &mut Ctx, mut body: impl MessageBody) -> Result<Self, Self::Error>
