@@ -1,6 +1,5 @@
 use super::{FromBody, IntoBody};
-use crate::{body::MessageBody, error::BoxError};
-use derive_more::derive::From;
+use crate::{body::MessageBody, error::Error};
 use futures_lite::{
     stream::{self, Boxed},
     StreamExt,
@@ -10,15 +9,6 @@ use std::{convert::Infallible, sync::Arc};
 pub enum Stream<T> {
     Body(Boxed<Result<Arc<[u8]>, Error>>),
     Stream(Boxed<T>),
-}
-
-#[derive(Debug, From)]
-pub struct Error(pub BoxError);
-
-impl From<Error> for BoxError {
-    fn from(value: Error) -> Self {
-        value.0
-    }
 }
 
 impl<T, Ctx> FromBody<Ctx> for Stream<T>

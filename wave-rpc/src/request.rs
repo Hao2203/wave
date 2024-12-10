@@ -1,24 +1,9 @@
 #![allow(unused)]
-use crate::{
-    body::Body,
-    error::{Error, Result},
-    message::FromBody,
-    service::Version,
-    ServiceDef,
-};
-use async_trait::async_trait;
-use bytes::{Buf, BytesMut};
-use futures_lite::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use std::{
-    convert::Infallible,
-    io,
-    pin::Pin,
-    task::{Context, Poll},
-};
-use tokio_util::{
-    codec::{Decoder, Encoder, Framed, FramedRead},
-    compat::FuturesAsyncReadCompatExt,
-};
+use crate::{body::Body, error::Result, service::Version};
+use bytes::BytesMut;
+use futures_lite::{AsyncRead, AsyncReadExt as _};
+use std::io;
+use tokio_util::codec::{Decoder, Encoder};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
 pub struct Request {
@@ -90,7 +75,7 @@ impl Decoder for HeaderCodec {
             return Ok(None);
         }
         let header = Header::try_read_from_bytes(&buf.split_to(Header::SIZE).freeze())
-            .map_err(|e| io::Error::from(io::ErrorKind::InvalidData))?;
+            .map_err(|_e| io::Error::from(io::ErrorKind::InvalidData))?;
         Ok(Some(header))
     }
 }

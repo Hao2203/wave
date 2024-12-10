@@ -40,11 +40,13 @@ pub trait RpcError: Display + Debug + Send + Sync + 'static {
     }
 }
 
-impl<T: RpcError + Send + Sync + 'static> From<T> for Error {
-    fn from(err: T) -> Self {
-        Self {
-            cause: Box::new(err),
-        }
+impl RpcError for Error {
+    fn code(&self) -> Code {
+        self.as_rpc_error().code()
+    }
+
+    fn to_bytes(&self) -> Arc<[u8]> {
+        self.as_rpc_error().to_bytes()
     }
 }
 
@@ -63,13 +65,17 @@ impl From<Infallible> for Error {
     }
 }
 
-impl RpcError for std::io::Error {
+impl RpcError for io::Error {
     fn code(&self) -> Code {
         Code::IoError
     }
+}
 
-    fn to_bytes(&self) -> Arc<[u8]> {
-        Arc::from(self.to_string().as_bytes())
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Error {
+            cause: Box::new(value),
+        }
     }
 }
 

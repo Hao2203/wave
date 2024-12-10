@@ -1,5 +1,6 @@
 use crate::{body::MessageBody, error::Error};
-use std::future::Future;
+use futures_lite::stream::StreamExt;
+use std::{future::Future, sync::Arc};
 
 pub mod stream;
 
@@ -16,4 +17,17 @@ pub trait FromBody<Ctx> {
 
 pub trait IntoBody {
     fn into_body(self) -> impl MessageBody;
+}
+
+impl<Ctx: std::marker::Send> FromBody<Ctx> for Arc<[u8]> {
+    type Error = Error;
+
+    async fn from_body(_ctx: &mut Ctx, mut body: impl MessageBody) -> Result<Self, Self::Error>
+    where
+        Self: Sized,
+    {
+        let data = body.next().await.transpose().map_err(Into::into)?;
+
+        Ok(data.unwrap_or_default())
+    }
 }

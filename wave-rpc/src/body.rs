@@ -10,7 +10,7 @@ use futures_lite::{
     AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt as _,
 };
 use std::{io, pin::Pin, sync::Arc};
-use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
+use tokio_util::codec::{Decoder, Encoder, FramedRead};
 
 pub type BoxMessageBody =
     Pin<Box<dyn MessageBody<Error = BoxError, Item = Result<Arc<[u8]>, BoxError>>>>;
@@ -18,19 +18,19 @@ pub type BoxMessageBody =
 pub trait MessageBody:
     Stream<Item = Result<Arc<[u8]>, Self::Error>> + Unpin + Send + 'static
 {
-    type Error: Into<BoxError> + Send + Sync;
+    type Error: Into<Error>;
 }
 
 impl<T, E> MessageBody for T
 where
     T: Stream<Item = Result<Arc<[u8]>, E>> + Send + 'static + Unpin,
-    E: Into<BoxError> + Send + Sync,
+    E: Into<Error>,
 {
     type Error = E;
 }
 
 pub struct Body {
-    frame_stream: Boxed<Result<Frame, BoxError>>,
+    frame_stream: Boxed<Result<Frame, Error>>,
 }
 
 impl Body {
@@ -72,15 +72,13 @@ impl Body {
         while let Some(frame) = self.frame_stream.next().await {
             let frame = frame?;
             let mut buf = BytesMut::new();
-            encoder.encode(frame, &mut buf);
+            encoder.encode(frame, &mut buf)?;
             writer.write_all(&buf).await?;
         }
         Ok(())
     }
 
-    pub(crate) fn into_message_body(
-        self,
-    ) -> impl MessageBody<Error = BoxError, Item = Result<Arc<[u8]>, BoxError>> {
+    pub(crate) fn into_message_body(self) -> impl MessageBody {
         let mut is_end_of_stream = false;
         self.frame_stream.filter_map(move |frame| {
             if is_end_of_stream {
@@ -98,7 +96,7 @@ impl Body {
         })
     }
 
-    pub(crate) fn framed_stream(self) -> Boxed<Result<Frame, BoxError>> {
+    pub(crate) fn framed_stream(self) -> Boxed<Result<Frame, Error>> {
         self.frame_stream
     }
 }
@@ -133,12 +131,12 @@ impl Frame {
     pub(crate) async fn from_connection_reader(
         reader: &mut ConnectionManager,
     ) -> crate::error::Result<Frame> {
-        let eos = reader.get_u8().await?;
+        let eos = reader.get_u8().await.unwrap();
         match eos {
             0 => Ok(Frame::End),
             1 => {
-                let data_size = reader.get_u32().await?;
-                let data = reader.read(data_size as usize).await?;
+                let data_size = reader.get_u32().await.unwrap();
+                let data = reader.read(data_size as usize).await.unwrap();
                 Ok(Frame::Data(data.into()))
             }
             _ => Err(io::Error::from(io::ErrorKind::InvalidData).into()),
