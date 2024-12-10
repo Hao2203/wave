@@ -148,7 +148,7 @@ where
 {
     async fn call(&self, req: Request) -> Result<Response> {
         let mut ctx = self.state.create_context();
-        let body = req.into_body().into_message_body();
+        let body = req.into_body().into_message_stream();
         let req = Req::from_body(&mut ctx, body).await.map_err(Into::into)?;
         let resp = self.f.call(&mut ctx, req).await;
         let resp = Response::new(Code::Ok, resp.into_body().into());

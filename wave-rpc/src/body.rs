@@ -12,8 +12,7 @@ use futures_lite::{
 use std::{io, pin::Pin, sync::Arc};
 use tokio_util::codec::{Decoder, Encoder, FramedRead};
 
-pub type BoxMessageBody =
-    Pin<Box<dyn MessageBody<Error = BoxError, Item = Result<Arc<[u8]>, BoxError>>>>;
+pub type BoxMessageBody = Pin<Box<dyn MessageBody<Error = Error, Item = Result<Arc<[u8]>, Error>>>>;
 
 pub trait MessageBody:
     Stream<Item = Result<Arc<[u8]>, Self::Error>> + Unpin + Send + 'static
@@ -30,12 +29,27 @@ where
 }
 
 pub struct Body {
-    frame_stream: Boxed<Result<Frame, Error>>,
+    inner: BoxMessageBody,
 }
 
 impl Body {
-    pub fn new(message_body: impl MessageBody) -> Self {
-        let frame_stream = message_body
+    pub fn new(message_stream: impl MessageBody) -> Self {
+        Self {
+            inner: Box::pin(message_stream.map(|data| data.map_err(Into::into))),
+        }
+    }
+
+    pub fn from_frame_stream(stream: impl Stream<Item = Frame> + Unpin + Send + 'static) -> Self {
+        let frame_stream = stream.map(|frame| todo!()).boxed();
+        Self { inner: todo!() }
+    }
+
+    pub fn into_message_stream(self) -> impl Stream<Item = Result<Arc<[u8]>, Error>> {
+        self.inner
+    }
+
+    pub fn into_frame_stream(self) -> impl Stream<Item = Frame> {
+        self.inner
             .filter_map(|data| {
                 if let Ok(data) = data {
                     if !data.is_empty() {
@@ -47,21 +61,25 @@ impl Body {
                     Some(data) // if error, we don't care
                 }
             })
-            .map(|data| data.map(Frame::new).map_err(Into::into))
-            .chain(stream::once(Ok(Frame::new_empty()))) // end of stream
-            .boxed();
-        Self { frame_stream }
+            .map(|data| {
+                data.map(Frame::new)
+                    .unwrap_or_else(|e| Frame::new(e.as_rpc_error().to_bytes()))
+            })
+            .chain(stream::once(Frame::new_empty())) // end of stream
+            .boxed()
     }
 
     pub fn once(data: Arc<[u8]>) -> Self {
-        Self::new(stream::once(Ok::<_, Error>(data)))
+        Self {
+            inner: Box::pin(stream::once(Ok::<_, Error>(data))),
+        }
     }
 
     pub(crate) fn from_reader(reader: impl AsyncRead + Unpin + Send + 'static) -> Self {
-        let frame_stream = FramedRead::new(reader.compat(), FrameCodec)
-            .map(|frame| frame.map_err(Into::into))
-            .boxed();
-        Self { frame_stream }
+        // let frame_stream = FramedRead::new(reader.compat(), FrameCodec)
+        //     .map(|frame| frame.map_err(Into::into))
+        //     .boxed();
+        todo!()
     }
 
     pub(crate) async fn write_into(
@@ -69,35 +87,14 @@ impl Body {
         writer: &mut (impl AsyncWrite + Unpin),
     ) -> Result<(), BoxError> {
         let mut encoder = Frame::codec();
-        while let Some(frame) = self.frame_stream.next().await {
+        while let Some(frame) = self.inner.next().await {
             let frame = frame?;
             let mut buf = BytesMut::new();
-            encoder.encode(frame, &mut buf)?;
+            todo!();
+            // encoder.encode(frame, &mut buf)?;
             writer.write_all(&buf).await?;
         }
         Ok(())
-    }
-
-    pub(crate) fn into_message_body(self) -> impl MessageBody {
-        let mut is_end_of_stream = false;
-        self.frame_stream.filter_map(move |frame| {
-            if is_end_of_stream {
-                None
-            } else {
-                match frame {
-                    Ok(Frame::Data(data)) => Some(Ok(Vec::from(data).into())),
-                    Ok(Frame::End) => {
-                        is_end_of_stream = true;
-                        None
-                    }
-                    Err(err) => Some(Err(err)),
-                }
-            }
-        })
-    }
-
-    pub(crate) fn framed_stream(self) -> Boxed<Result<Frame, Error>> {
-        self.frame_stream
     }
 }
 
@@ -111,7 +108,7 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Frame {
+pub enum Frame {
     End,
     Data(Bytes),
 }
