@@ -1,14 +1,15 @@
-use super::{FromBody, IntoBody};
+#![allow(unused)]
+use super::{FromBody, IntoBody, IoStream};
 use crate::{body::MessageBody, error::Error};
 use bytes::Bytes;
 use futures_lite::{
     stream::{self, Boxed},
     StreamExt,
 };
-use std::convert::Infallible;
+use std::{convert::Infallible, io};
 
 pub enum Stream<T> {
-    Body(Boxed<Result<Bytes, Error>>),
+    Body(Boxed<Result<Bytes, io::Error>>),
     Stream(Boxed<T>),
 }
 
@@ -18,32 +19,29 @@ where
 {
     type Error = Infallible;
 
-    async fn from_body(_ctx: &mut Ctx, body: impl MessageBody) -> Result<Self, Self::Error>
+    async fn from_body(_ctx: &mut Ctx, body: impl IoStream) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        Ok(Self::Body(
-            body.map(|data| data.map_err(Into::into).map_err(Into::into))
-                .boxed(),
-        ))
+        Ok(Self::Body(body.boxed()))
     }
 }
 
-impl<T> IntoBody for Stream<T>
-where
-    T: IntoBody + 'static,
-{
-    fn into_body(self) -> impl MessageBody {
-        match self {
-            Stream::Body(body) => body,
-            Stream::Stream(stream) => stream
-                .map(|item| item.into_body())
-                .flatten()
-                .map(|item| item.map_err(Into::into).map_err(Into::into))
-                .boxed(),
-        }
-    }
-}
+// impl<T> IntoBody for Stream<T>
+// where
+//     T: IntoBody + 'static,
+// {
+//     fn into_body(self) -> impl MessageBody {
+//         match self {
+//             Stream::Body(body) => body,
+//             Stream::Stream(stream) => stream
+//                 .map(|item| item.into_body())
+//                 .flatten()
+//                 .map(|item| item.map_err(Into::into))
+//                 .boxed(),
+//         }
+//     }
+// }
 
 impl<T> Stream<T> {
     pub fn make_stream<Ctx>(

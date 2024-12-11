@@ -12,7 +12,7 @@ where
     type Error = Error;
     async fn from_body(
         ctx: &mut Ctx,
-        body: impl crate::body::MessageBody,
+        body: impl Stream<Item = Result<Bytes, io::Error>> + Unpin + Send + 'static,
     ) -> Result<Self, Self::Error>
     where
         Self: Sized,
