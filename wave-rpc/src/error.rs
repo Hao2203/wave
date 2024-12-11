@@ -1,12 +1,12 @@
 // #![allow(unused)]
 use crate::code::Code;
+use bytes::Bytes;
 use derive_more::derive::Display;
 use std::{
     any::Any,
     convert::Infallible,
     fmt::{Debug, Display},
     io,
-    sync::Arc,
 };
 use zerocopy::TryFromBytes;
 
@@ -35,8 +35,8 @@ impl Error {
 pub trait RpcError: Display + Debug + Send + Sync + 'static {
     fn code(&self) -> Code;
 
-    fn to_bytes(&self) -> Arc<[u8]> {
-        Arc::from(self.to_string().as_bytes())
+    fn to_bytes(&self) -> Bytes {
+        Bytes::copy_from_slice(self.to_string().as_bytes())
     }
 }
 
@@ -87,7 +87,7 @@ impl RpcError for ErrorMsg {
         self.code
     }
 
-    fn to_bytes(&self) -> Arc<[u8]> {
-        Arc::from(self.to_string().as_bytes())
+    fn to_bytes(&self) -> Bytes {
+        Bytes::copy_from_slice(self.to_string().as_bytes())
     }
 }

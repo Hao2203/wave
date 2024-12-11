@@ -17,7 +17,7 @@ where
     where
         Self: Sized,
     {
-        let bytes: Arc<[u8]> = Arc::from_body(ctx, body).await?;
+        let bytes = Bytes::from_body(ctx, body).await?;
         let data = ::bincode::deserialize(&bytes)?;
         Ok(Bincode(data))
     }

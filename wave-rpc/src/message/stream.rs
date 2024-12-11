@@ -1,13 +1,14 @@
 use super::{FromBody, IntoBody};
 use crate::{body::MessageBody, error::Error};
+use bytes::Bytes;
 use futures_lite::{
     stream::{self, Boxed},
     StreamExt,
 };
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 pub enum Stream<T> {
-    Body(Boxed<Result<Arc<[u8]>, Error>>),
+    Body(Boxed<Result<Bytes, Error>>),
     Stream(Boxed<T>),
 }
 

@@ -12,17 +12,15 @@ use futures_lite::{
 use std::{io, pin::Pin, sync::Arc};
 use tokio_util::codec::{Decoder, Encoder, FramedRead};
 
-pub type BoxMessageBody = Pin<Box<dyn MessageBody<Error = Error, Item = Result<Arc<[u8]>, Error>>>>;
+pub type BoxMessageBody = Pin<Box<dyn MessageBody<Error = Error, Item = Result<Bytes, Error>>>>;
 
-pub trait MessageBody:
-    Stream<Item = Result<Arc<[u8]>, Self::Error>> + Unpin + Send + 'static
-{
+pub trait MessageBody: Stream<Item = Result<Bytes, Self::Error>> + Unpin + Send + 'static {
     type Error: Into<Error>;
 }
 
 impl<T, E> MessageBody for T
 where
-    T: Stream<Item = Result<Arc<[u8]>, E>> + Send + 'static + Unpin,
+    T: Stream<Item = Result<Bytes, E>> + Send + 'static + Unpin,
     E: Into<Error>,
 {
     type Error = E;
@@ -44,7 +42,7 @@ impl Body {
         Self { inner: todo!() }
     }
 
-    pub fn into_message_stream(self) -> impl Stream<Item = Result<Arc<[u8]>, Error>> {
+    pub fn into_message_stream(self) -> impl Stream<Item = Result<Bytes, Error>> {
         self.inner
     }
 
@@ -69,7 +67,7 @@ impl Body {
             .boxed()
     }
 
-    pub fn once(data: Arc<[u8]>) -> Self {
+    pub fn once(data: Bytes) -> Self {
         Self {
             inner: Box::pin(stream::once(Ok::<_, Error>(data))),
         }
@@ -121,8 +119,8 @@ impl Frame {
         FrameCodec
     }
 
-    pub fn new(data: Arc<[u8]>) -> Frame {
-        Frame::Data(Bytes::from_owner(data))
+    pub fn new(data: Bytes) -> Frame {
+        Frame::Data(data)
     }
 
     pub(crate) async fn from_connection_reader(
@@ -141,7 +139,7 @@ impl Frame {
     }
 
     pub fn new_empty() -> Frame {
-        Self::new(Arc::new([]))
+        Self::new(Bytes::new())
     }
 
     pub fn is_end_of_stream(&self) -> bool {
