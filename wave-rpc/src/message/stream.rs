@@ -1,5 +1,5 @@
 #![allow(unused)]
-use super::{FromBody, IntoBody, IoBytesStream};
+use super::{BytesStream, FromStream, IntoStream};
 use crate::{body::MessageBody, error::Error};
 use bytes::Bytes;
 use futures_lite::{
@@ -13,13 +13,16 @@ pub enum Stream<T> {
     Stream(Boxed<T>),
 }
 
-impl<T, Ctx> FromBody<Ctx> for Stream<T>
+impl<T, Ctx> FromStream<Ctx> for Stream<T>
 where
     Ctx: Send,
 {
     type Error = Infallible;
 
-    async fn from_body(_ctx: &mut Ctx, body: impl IoBytesStream) -> Result<Self, Self::Error>
+    async fn from_stream(
+        _ctx: &mut Ctx,
+        body: impl BytesStream<Error = io::Error>,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -49,13 +52,13 @@ impl<T> Stream<T> {
         ctx: &mut Ctx,
     ) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin + use<'_, Ctx, T>
     where
-        T: FromBody<Ctx> + 'static,
+        T: FromStream<Ctx> + 'static,
         Ctx: Send,
     {
         match self {
             Stream::Body(body) => stream::unfold((ctx, body), |(ctx, mut body)| async {
                 if let Some(data) = body.next().await {
-                    let item = T::from_body(ctx, stream::once(data)).await;
+                    let item = T::from_stream(ctx, stream::once(data)).await;
                     Some((item, (ctx, body)))
                 } else {
                     None

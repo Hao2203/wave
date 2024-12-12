@@ -3,7 +3,7 @@ use crate::{
     body::Body,
     code::Code,
     error::Error,
-    message::{FromBody, IntoBody},
+    message::{FromStream, IntoStream},
     request::Request,
     response::Response,
     service::Version,
@@ -59,8 +59,8 @@ impl<State> RpcServiceBuilder<State> {
         State: ContextFactory<Ctx = Ctx> + Send + Sync + 'static,
         Ctx: Send,
         S: ServiceDef,
-        <S as ServiceDef>::Request: FromBody<Ctx> + Send + 'static,
-        <S as ServiceDef>::Response: IntoBody + Send + Sync + 'static,
+        <S as ServiceDef>::Request: FromStream<Ctx> + Send + 'static,
+        <S as ServiceDef>::Response: IntoStream + Send + Sync + 'static,
     {
         let id = S::ID;
         let key = ServiceKey::new(id, self.version);
@@ -142,8 +142,8 @@ impl<S, Ctx, F, Req, Resp> RpcHandler for FnHandler<F, S, Req, Resp>
 where
     S: ContextFactory<Ctx = Ctx> + Send + std::marker::Sync,
     F: Handle<Ctx, Req, Response = Resp>,
-    Req: FromBody<Ctx> + Send,
-    Resp: IntoBody + Send,
+    Req: FromStream<Ctx> + Send,
+    Resp: IntoStream + Send,
     Ctx: Send,
 {
     async fn call(&self, req: Request) -> Result<Response> {

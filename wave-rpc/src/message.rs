@@ -1,4 +1,3 @@
-use crate::body::MessageBody;
 use bytes::Bytes;
 use futures_lite::{stream::StreamExt, Stream};
 use std::{error::Error, future::Future, io};
@@ -7,30 +6,41 @@ use std::{error::Error, future::Future, io};
 pub mod bincode;
 pub mod stream;
 
-pub trait IoBytesStream: Stream<Item = Result<Bytes, io::Error>> + Unpin + Send + 'static {}
+pub trait BytesStream: Stream<Item = Result<Bytes, Self::Error>> + Unpin + Send + 'static {
+    type Error: Error;
+}
 
-impl<T> IoBytesStream for T where T: Stream<Item = Result<Bytes, io::Error>> + Unpin + Send + 'static
-{}
+impl<T, E> BytesStream for T
+where
+    T: Stream<Item = Result<Bytes, E>> + Unpin + Send + 'static,
+    E: Error,
+{
+    type Error = E;
+}
 
-pub trait FromBody<Ctx> {
+pub trait FromStream<Ctx> {
     type Error: Error;
 
-    fn from_body(
+    fn from_stream(
         ctx: &mut Ctx,
-        body: impl IoBytesStream,
+        body: impl BytesStream<Error = io::Error>,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;
 }
 
-pub trait IntoBody {
-    fn into_body(self) -> impl MessageBody;
+pub trait IntoStream {
+    type Error: Error;
+    fn into_stream(self) -> impl BytesStream<Error = Self::Error>;
 }
 
-impl<Ctx: Send> FromBody<Ctx> for Bytes {
+impl<Ctx: Send> FromStream<Ctx> for Bytes {
     type Error = io::Error;
 
-    async fn from_body(_ctx: &mut Ctx, mut body: impl IoBytesStream) -> Result<Self, Self::Error>
+    async fn from_stream(
+        _ctx: &mut Ctx,
+        mut body: impl BytesStream<Error = io::Error>,
+    ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -39,3 +49,10 @@ impl<Ctx: Send> FromBody<Ctx> for Bytes {
         Ok(data.unwrap_or_default())
     }
 }
+
+// impl IntoStream for Bytes {
+//     type Error = io::Error;
+//     fn into_stream(self) -> impl BytesStream<Error = io::Error> {
+//         stream::once(self)
+//     }
+// }

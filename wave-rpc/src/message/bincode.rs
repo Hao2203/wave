@@ -4,20 +4,20 @@ use serde::Deserialize;
 use super::*;
 pub struct Bincode<T>(pub T);
 
-impl<T, Ctx> FromBody<Ctx> for Bincode<T>
+impl<T, Ctx> FromStream<Ctx> for Bincode<T>
 where
     T: for<'a> Deserialize<'a>,
     Ctx: Send,
 {
     type Error = Error;
-    async fn from_body(
+    async fn from_stream(
         ctx: &mut Ctx,
         body: impl Stream<Item = Result<Bytes, io::Error>> + Unpin + Send + 'static,
     ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        let bytes = Bytes::from_body(ctx, body).await?;
+        let bytes = Bytes::from_stream(ctx, body).await?;
         let data = ::bincode::deserialize(&bytes)?;
         Ok(Bincode(data))
     }

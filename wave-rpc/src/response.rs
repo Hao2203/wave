@@ -6,7 +6,7 @@ use crate::{
     body::Body,
     code::Code,
     error::{BoxError, Error, Result},
-    message::FromBody,
+    message::FromStream,
 };
 
 pub struct Response {

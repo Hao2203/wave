@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::io;
 
-use crate::message::FromBody;
+use crate::message::FromStream;
 use async_trait::async_trait;
 use derive_more::derive::Display;
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
