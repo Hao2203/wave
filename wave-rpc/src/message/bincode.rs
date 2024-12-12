@@ -1,4 +1,4 @@
-use crate::error::RpcError;
+use derive_more::derive::{Display, From};
 use serde::Deserialize;
 
 use super::*;
@@ -23,8 +23,8 @@ where
     }
 }
 
-impl RpcError for ::bincode::Error {
-    fn code(&self) -> crate::code::Code {
-        todo!()
-    }
+#[derive(Debug, Display, From, derive_more::Error)]
+pub enum Error {
+    Io(io::Error),
+    Bincode(::bincode::Error),
 }

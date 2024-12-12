@@ -1,5 +1,5 @@
 #![allow(unused)]
-use super::{FromBody, IntoBody, IoStream};
+use super::{FromBody, IntoBody, IoBytesStream};
 use crate::{body::MessageBody, error::Error};
 use bytes::Bytes;
 use futures_lite::{
@@ -19,7 +19,7 @@ where
 {
     type Error = Infallible;
 
-    async fn from_body(_ctx: &mut Ctx, body: impl IoStream) -> Result<Self, Self::Error>
+    async fn from_body(_ctx: &mut Ctx, body: impl IoBytesStream) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
