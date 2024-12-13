@@ -42,8 +42,8 @@ impl Body {
         Self { inner: todo!() }
     }
 
-    pub fn into_message_stream(self) -> impl Stream<Item = Result<Bytes, Error>> {
-        self.inner
+    pub fn into_message_stream(self) -> impl Stream<Item = Bytes> {
+        self.inner.filter_map(|data| data.ok())
     }
 
     pub fn into_frame_stream(self) -> impl Stream<Item = Frame> {

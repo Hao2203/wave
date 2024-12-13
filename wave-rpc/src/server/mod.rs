@@ -14,7 +14,6 @@ use tokio_util::codec::FramedRead;
 use tower::Service;
 use tracing::{instrument, trace, Level};
 
-pub mod context;
 pub mod fut;
 pub mod handler;
 pub mod service;

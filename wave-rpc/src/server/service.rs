@@ -1,4 +1,4 @@
-use super::{context::ContextFactory, Result};
+use super::Result;
 use crate::{
     body::Body,
     code::Code,
@@ -51,29 +51,28 @@ impl<State> RpcServiceBuilder<State> {
         self
     }
 
-    // pub fn register<S, Ctx>(
-    //     mut self,
-    //     f: impl Handle<Ctx, S::Request, Response = S::Response>,
-    // ) -> Self
-    // where
-    //     State: ContextFactory<Ctx = Ctx> + Send + Sync + 'static,
-    //     Ctx: Send,
-    //     S: ServiceDef,
-    //     <S as ServiceDef>::Request: FromStream<Ctx> + Send + 'static,
-    //     <S as ServiceDef>::Response: IntoStream + Send + Sync + 'static,
-    // {
-    //     let id = S::ID;
-    //     let key = ServiceKey::new(id, self.version);
-    //     self.map.insert(
-    //         key,
-    //         Box::new(FnHandler {
-    //             f,
-    //             state: self.state.clone(),
-    //             _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
-    //         }),
-    //     );
-    //     self
-    // }
+    pub fn register<S>(
+        mut self,
+        f: impl Handle<Arc<State>, S::Request, Response = S::Response>,
+    ) -> Self
+    where
+        State: Send + Sync + 'static,
+        S: ServiceDef,
+        <S as ServiceDef>::Request: FromStream + Send + 'static,
+        <S as ServiceDef>::Response: IntoStream + Send + Sync + 'static,
+    {
+        let id = S::ID;
+        let key = ServiceKey::new(id, self.version);
+        self.map.insert(
+            key,
+            Box::new(FnHandler {
+                f,
+                state: self.state.clone(),
+                _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
+            }),
+        );
+        self
+    }
 
     // pub fn merge(mut self, other: RpcService) -> Self {
     //     self.map.extend(other.map);
@@ -104,24 +103,24 @@ impl ServiceKey {
 //     map: BTreeMap<ServiceKey, Box<dyn RpcHandler + Send + Sync>>,
 // }
 
-pub trait Handle<Ctx, Req>: Send + Sync + 'static {
+pub trait Handle<State, Req>: Send + Sync + 'static {
     type Response;
     type Future: Future<Output = Self::Response> + Send;
-    fn call(&self, state: &mut Ctx, req: Req) -> Self::Future;
+    fn call(&self, state: State, req: Req) -> Self::Future;
 }
 
-impl<F, Fut, Req, Resp, Ctx> Handle<Ctx, Req> for F
+impl<F, Fut, Req, Resp, State> Handle<State, Req> for F
 where
-    F: Fn(&mut Ctx, Req) -> Fut + Send + Sync + 'static,
+    F: Fn(State, Req) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Resp> + Send,
-    Ctx: Send,
+    State: Send,
     Req: Send,
     Resp: Send,
 {
     type Response = Resp;
     type Future = Fut;
 
-    fn call(&self, state: &mut Ctx, req: Req) -> Self::Future {
+    fn call(&self, state: State, req: Req) -> Self::Future {
         (self)(state, req)
     }
 }
@@ -140,20 +139,18 @@ struct FnHandler<F, S, Req, Resp> {
 #[async_trait]
 impl<S, F, Req, Resp> RpcHandler for FnHandler<F, S, Req, Resp>
 where
-    S: Send + std::marker::Sync,
-    F: Handle<S, Req, Response = Resp>,
+    S: Send + Sync,
+    F: Handle<Arc<S>, Req, Response = Resp>,
     Req: FromStream + Send,
     Resp: IntoStream + Send,
 {
     async fn call(&self, req: Request) -> Result<Response> {
-        // let mut ctx = self.state.create_context();
-        // let body = req.into_body().into_message_stream();
-        // let req = Req::from_body(&mut ctx, body).await.map_err(Into::into)?;
-        // let resp = self.f.call(&mut ctx, req).await;
-        // let resp = Response::new(Code::Ok, resp.into_body().into());
-        // self.state.cleanup_context(ctx).await;
-        // Ok(resp)
-        todo!()
+        let body = req.into_body().into_message_stream();
+        let state = self.state.clone();
+        let req = Req::from_stream(body).await.unwrap();
+        let resp = self.f.call(state, req).await;
+        let resp = Response::new(Code::Ok, todo!());
+        Ok(resp)
     }
 }
 

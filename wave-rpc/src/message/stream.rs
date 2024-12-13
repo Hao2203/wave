@@ -1,5 +1,5 @@
 #![allow(unused)]
-use super::{BytesStream, FromStream, IntoStream};
+use super::{BytesStream, FromStream, IntoStream, TryBytesStream};
 use crate::{body::MessageBody, error::Error};
 use bytes::Bytes;
 use futures_lite::{
@@ -24,21 +24,19 @@ impl<T> FromStream for Stream<T> {
     }
 }
 
-// impl<T> IntoBody for Stream<T>
-// where
-//     T: IntoBody + 'static,
-// {
-//     fn into_body(self) -> impl MessageBody {
-//         match self {
-//             Stream::Body(body) => body,
-//             Stream::Stream(stream) => stream
-//                 .map(|item| item.into_body())
-//                 .flatten()
-//                 .map(|item| item.map_err(Into::into))
-//                 .boxed(),
-//         }
-//     }
-// }
+impl<T> IntoStream for Stream<T>
+where
+    T: IntoStream + 'static,
+{
+    type Error = T::Error;
+
+    fn into_stream(self) -> impl TryBytesStream<Error = Self::Error> {
+        match self {
+            Stream::Body(body) => body.map(Ok).boxed(),
+            Stream::Stream(stream) => stream.map(|data| data.into_stream()).flatten().boxed(),
+        }
+    }
+}
 
 impl<T> Stream<T> {
     pub fn make_stream(self) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin
