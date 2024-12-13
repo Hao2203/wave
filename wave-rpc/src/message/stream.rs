@@ -9,20 +9,14 @@ use futures_lite::{
 use std::{convert::Infallible, io};
 
 pub enum Stream<T> {
-    Body(Boxed<Result<Bytes, io::Error>>),
+    Body(Boxed<Bytes>),
     Stream(Boxed<T>),
 }
 
-impl<T, Ctx> FromStream<Ctx> for Stream<T>
-where
-    Ctx: Send,
-{
+impl<T> FromStream for Stream<T> {
     type Error = Infallible;
 
-    async fn from_stream(
-        _ctx: &mut Ctx,
-        body: impl BytesStream<Error = io::Error>,
-    ) -> Result<Self, Self::Error>
+    async fn from_stream(body: impl BytesStream) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
@@ -47,19 +41,15 @@ where
 // }
 
 impl<T> Stream<T> {
-    pub fn make_stream<Ctx>(
-        self,
-        ctx: &mut Ctx,
-    ) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin + use<'_, Ctx, T>
+    pub fn make_stream(self) -> impl futures_lite::Stream<Item = Result<T, T::Error>> + Send + Unpin
     where
-        T: FromStream<Ctx> + 'static,
-        Ctx: Send,
+        T: FromStream + 'static,
     {
         match self {
-            Stream::Body(body) => stream::unfold((ctx, body), |(ctx, mut body)| async {
+            Stream::Body(body) => stream::unfold(body, |mut body| async {
                 if let Some(data) = body.next().await {
-                    let item = T::from_stream(ctx, stream::once(data)).await;
-                    Some((item, (ctx, body)))
+                    let item = T::from_stream(stream::once(data)).await;
+                    Some((item, body))
                 } else {
                     None
                 }

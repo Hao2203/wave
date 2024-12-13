@@ -1,25 +1,40 @@
 use derive_more::derive::{Display, From};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::*;
 pub struct Bincode<T>(pub T);
 
-impl<T, Ctx> FromStream<Ctx> for Bincode<T>
+impl<T> FromStream for Bincode<T>
 where
     T: for<'a> Deserialize<'a>,
-    Ctx: Send,
 {
     type Error = Error;
     async fn from_stream(
-        ctx: &mut Ctx,
-        body: impl Stream<Item = Result<Bytes, io::Error>> + Unpin + Send + 'static,
+        body: impl Stream<Item = Bytes> + Unpin + Send + 'static,
     ) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        let bytes = Bytes::from_stream(ctx, body).await?;
-        let data = ::bincode::deserialize(&bytes)?;
-        Ok(Bincode(data))
+        let bytes = Bytes::from_stream(body).await;
+        match bytes {
+            Ok(bytes) => {
+                let data = ::bincode::deserialize(&bytes)?;
+                Ok(Bincode(data))
+            }
+        }
+    }
+}
+
+impl<T> IntoStream for Bincode<T>
+where
+    T: Serialize,
+{
+    type Error = Error;
+    fn into_stream(self) -> impl TryBytesStream<Error = Self::Error> {
+        let bytes = ::bincode::serialize(&self.0)
+            .map(Bytes::from)
+            .map_err(Error::Bincode);
+        futures_lite::stream::once(bytes)
     }
 }
 

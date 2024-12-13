@@ -1,16 +1,22 @@
 use bytes::Bytes;
 use futures_lite::{stream::StreamExt, Stream};
-use std::{error::Error, future::Future, io};
+use std::{convert::Infallible, error::Error, future::Future, io};
 
 #[cfg(feature = "bincode")]
 pub mod bincode;
 pub mod stream;
 
-pub trait BytesStream: Stream<Item = Result<Bytes, Self::Error>> + Unpin + Send + 'static {
+pub trait BytesStream: Stream<Item = Bytes> + Send + Unpin + 'static {}
+
+impl<T> BytesStream for T where T: Stream<Item = Bytes> + Send + Unpin + 'static {}
+
+pub trait TryBytesStream:
+    Stream<Item = Result<Bytes, Self::Error>> + Unpin + Send + 'static
+{
     type Error: Error;
 }
 
-impl<T, E> BytesStream for T
+impl<T, E> TryBytesStream for T
 where
     T: Stream<Item = Result<Bytes, E>> + Unpin + Send + 'static,
     E: Error,
@@ -18,12 +24,11 @@ where
     type Error = E;
 }
 
-pub trait FromStream<Ctx> {
+pub trait FromStream {
     type Error: Error;
 
     fn from_stream(
-        ctx: &mut Ctx,
-        body: impl BytesStream<Error = io::Error>,
+        stream: impl BytesStream,
     ) -> impl Future<Output = Result<Self, Self::Error>> + Send
     where
         Self: Sized;
@@ -31,28 +36,25 @@ pub trait FromStream<Ctx> {
 
 pub trait IntoStream {
     type Error: Error;
-    fn into_stream(self) -> impl BytesStream<Error = Self::Error>;
+    fn into_stream(self) -> impl TryBytesStream<Error = Self::Error>;
 }
 
-impl<Ctx: Send> FromStream<Ctx> for Bytes {
-    type Error = io::Error;
+impl FromStream for Bytes {
+    type Error = Infallible;
 
-    async fn from_stream(
-        _ctx: &mut Ctx,
-        mut body: impl BytesStream<Error = io::Error>,
-    ) -> Result<Self, Self::Error>
+    async fn from_stream(mut stream: impl BytesStream) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        let data = body.next().await.transpose()?;
+        let data = stream.next().await;
 
         Ok(data.unwrap_or_default())
     }
 }
 
-// impl IntoStream for Bytes {
-//     type Error = io::Error;
-//     fn into_stream(self) -> impl BytesStream<Error = io::Error> {
-//         stream::once(self)
-//     }
-// }
+impl IntoStream for Bytes {
+    type Error = Infallible;
+    fn into_stream(self) -> impl TryBytesStream<Error = Infallible> {
+        futures_lite::stream::once(Ok(self))
+    }
+}

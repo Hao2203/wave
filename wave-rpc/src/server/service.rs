@@ -51,29 +51,29 @@ impl<State> RpcServiceBuilder<State> {
         self
     }
 
-    pub fn register<S, Ctx>(
-        mut self,
-        f: impl Handle<Ctx, S::Request, Response = S::Response>,
-    ) -> Self
-    where
-        State: ContextFactory<Ctx = Ctx> + Send + Sync + 'static,
-        Ctx: Send,
-        S: ServiceDef,
-        <S as ServiceDef>::Request: FromStream<Ctx> + Send + 'static,
-        <S as ServiceDef>::Response: IntoStream + Send + Sync + 'static,
-    {
-        let id = S::ID;
-        let key = ServiceKey::new(id, self.version);
-        self.map.insert(
-            key,
-            Box::new(FnHandler {
-                f,
-                state: self.state.clone(),
-                _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
-            }),
-        );
-        self
-    }
+    // pub fn register<S, Ctx>(
+    //     mut self,
+    //     f: impl Handle<Ctx, S::Request, Response = S::Response>,
+    // ) -> Self
+    // where
+    //     State: ContextFactory<Ctx = Ctx> + Send + Sync + 'static,
+    //     Ctx: Send,
+    //     S: ServiceDef,
+    //     <S as ServiceDef>::Request: FromStream<Ctx> + Send + 'static,
+    //     <S as ServiceDef>::Response: IntoStream + Send + Sync + 'static,
+    // {
+    //     let id = S::ID;
+    //     let key = ServiceKey::new(id, self.version);
+    //     self.map.insert(
+    //         key,
+    //         Box::new(FnHandler {
+    //             f,
+    //             state: self.state.clone(),
+    //             _service: std::marker::PhantomData::<fn() -> (S::Request, S::Response)>,
+    //         }),
+    //     );
+    //     self
+    // }
 
     // pub fn merge(mut self, other: RpcService) -> Self {
     //     self.map.extend(other.map);
@@ -138,13 +138,12 @@ struct FnHandler<F, S, Req, Resp> {
 }
 
 #[async_trait]
-impl<S, Ctx, F, Req, Resp> RpcHandler for FnHandler<F, S, Req, Resp>
+impl<S, F, Req, Resp> RpcHandler for FnHandler<F, S, Req, Resp>
 where
-    S: ContextFactory<Ctx = Ctx> + Send + std::marker::Sync,
-    F: Handle<Ctx, Req, Response = Resp>,
-    Req: FromStream<Ctx> + Send,
+    S: Send + std::marker::Sync,
+    F: Handle<S, Req, Response = Resp>,
+    Req: FromStream + Send,
     Resp: IntoStream + Send,
-    Ctx: Send,
 {
     async fn call(&self, req: Request) -> Result<Response> {
         // let mut ctx = self.state.create_context();
