@@ -1,6 +1,6 @@
 #![allow(unused)]
 use super::{BytesStream, FromStream, IntoStream, TryBytesStream};
-use crate::{body::MessageBody, error::Error};
+use crate::error::Error;
 use bytes::Bytes;
 use futures_lite::{
     stream::{self, Boxed},

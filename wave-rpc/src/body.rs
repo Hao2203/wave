@@ -12,26 +12,16 @@ use futures_lite::{
 use std::{io, pin::Pin, sync::Arc};
 use tokio_util::codec::{Decoder, Encoder, FramedRead};
 
-pub type BoxMessageBody = Pin<Box<dyn MessageBody<Error = Error, Item = Result<Bytes, Error>>>>;
-
-pub trait MessageBody: Stream<Item = Result<Bytes, Self::Error>> + Unpin + Send + 'static {
-    type Error: Into<Error>;
-}
-
-impl<T, E> MessageBody for T
-where
-    T: Stream<Item = Result<Bytes, E>> + Send + 'static + Unpin,
-    E: Into<Error>,
-{
-    type Error = E;
-}
-
 pub struct Body {
-    inner: BoxMessageBody,
+    inner: Boxed<Result<Bytes, anyhow::Error>>,
 }
 
 impl Body {
-    pub fn new(message_stream: impl MessageBody) -> Self {
+    pub fn new<S, E>(message_stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        E: std::error::Error + Send + Sync + 'static,
+    {
         Self {
             inner: Box::pin(message_stream.map(|data| data.map_err(Into::into))),
         }
@@ -59,17 +49,14 @@ impl Body {
                     Some(data) // if error, we don't care
                 }
             })
-            .map(|data| {
-                data.map(Frame::new)
-                    .unwrap_or_else(|e| Frame::new(e.as_rpc_error().to_bytes()))
-            })
+            .map(|data| data.map(Frame::new).unwrap())
             .chain(stream::once(Frame::new_empty())) // end of stream
             .boxed()
     }
 
     pub fn once(data: Bytes) -> Self {
         Self {
-            inner: Box::pin(stream::once(Ok::<_, Error>(data))),
+            inner: Box::pin(stream::once(Ok(data))),
         }
     }
 
@@ -93,15 +80,6 @@ impl Body {
             writer.write_all(&buf).await?;
         }
         Ok(())
-    }
-}
-
-impl<T> From<T> for Body
-where
-    T: MessageBody,
-{
-    fn from(message_body: T) -> Self {
-        Self::new(message_body)
     }
 }
 

@@ -15,7 +15,6 @@ use tower::Service;
 use tracing::{instrument, trace, Level};
 
 pub mod fut;
-pub mod handler;
 pub mod service;
 
 pub trait ServerApp {
