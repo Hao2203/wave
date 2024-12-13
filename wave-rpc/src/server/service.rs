@@ -145,9 +145,8 @@ where
     Resp: IntoStream + Send,
 {
     async fn call(&self, req: Request) -> Result<Response> {
-        let body = req.into_body().into_message_stream();
         let state = self.state.clone();
-        let req = Req::from_stream(body).await.unwrap();
+        let req = Req::from_stream(req).await.unwrap();
         let resp = self.f.call(state, req).await;
         let resp = Response::new(Code::Ok, todo!());
         Ok(resp)

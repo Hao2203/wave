@@ -1,19 +1,36 @@
 #![allow(unused)]
-use crate::{body::Body, error::Result, service::Version};
-use bytes::BytesMut;
-use futures_lite::{AsyncRead, AsyncReadExt as _};
-use std::io;
-use tokio_util::codec::{Decoder, Encoder};
+use crate::{error::Result, service::Version};
+use async_compat::CompatExt;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures_lite::{AsyncRead, AsyncReadExt as _, Stream, StreamExt};
+use std::pin::Pin;
+use tokio_util::codec::{Decoder, Encoder, FramedRead};
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
 pub struct Request {
     pub header: Header,
-    pub body: Body,
+    pub body: Pin<Box<dyn Stream<Item = Bytes> + Send>>,
 }
 
 impl Request {
-    pub fn new(header: Header, body: Body) -> Self {
-        Self { header, body }
+    // pub fn new(header: Header, body: Body) -> Self {
+    //     Self { header, body }
+    // }
+
+    pub async fn from_reader(
+        mut reader: impl AsyncRead + Unpin + Send + 'static,
+    ) -> Result<Request> {
+        let header = Header::from_reader(&mut reader).await?;
+        let stream = FramedRead::new(reader.compat(), FrameCodec);
+        let body = stream
+            .filter_map(|frame| match frame {
+                Ok(ReqFrame::Data(data)) => Some(data),
+                _ => None,
+            })
+            .boxed();
+        let request = Request { header, body };
+
+        Ok(request)
     }
 
     pub fn header(&self) -> &Header {
@@ -27,17 +44,16 @@ impl Request {
     pub fn service_version(&self) -> Version {
         Version::from(self.header.service_version)
     }
+}
 
-    pub fn body(&self) -> &Body {
-        &self.body
-    }
+impl Stream for Request {
+    type Item = Bytes;
 
-    pub fn body_mut(&mut self) -> &mut Body {
-        &mut self.body
-    }
-
-    pub fn into_body(self) -> Body {
-        self.body
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.body.as_mut().poll_next(cx)
     }
 }
 
@@ -64,27 +80,80 @@ impl Header {
     }
 }
 
-pub(crate) struct HeaderCodec;
+#[derive(Debug, Clone)]
+pub enum ReqFrame {
+    End,
+    Data(Bytes),
+}
 
-impl Decoder for HeaderCodec {
-    type Item = Header;
-    type Error = io::Error;
+impl ReqFrame {
+    const SIZE_LEN: usize = 4;
+    const EOS_LEN: usize = 1;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if buf.len() < Header::SIZE {
-            return Ok(None);
-        }
-        let header = Header::try_read_from_bytes(&buf.split_to(Header::SIZE).freeze())
-            .map_err(|_e| io::Error::from(io::ErrorKind::InvalidData))?;
-        Ok(Some(header))
+    pub(crate) fn codec() -> FrameCodec {
+        FrameCodec
+    }
+
+    pub fn new(data: Bytes) -> ReqFrame {
+        ReqFrame::Data(data)
+    }
+
+    pub fn new_empty() -> ReqFrame {
+        Self::new(Bytes::new())
+    }
+
+    pub fn is_end_of_stream(&self) -> bool {
+        matches!(self, ReqFrame::End)
     }
 }
 
-impl Encoder<Header> for HeaderCodec {
-    type Error = io::Error;
+pub(crate) struct FrameCodec;
 
-    fn encode(&mut self, item: Header, buf: &mut BytesMut) -> Result<(), Self::Error> {
-        buf.extend_from_slice(item.as_bytes());
+impl Encoder<ReqFrame> for FrameCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, item: ReqFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.reserve(ReqFrame::EOS_LEN);
+        match item {
+            ReqFrame::End => dst.put_u8(0),
+            ReqFrame::Data(data) => {
+                let data_size = data.len() as u32;
+                dst.put_u8(1);
+                dst.reserve(ReqFrame::SIZE_LEN + data_size as usize);
+                dst.put_u32(data_size);
+                dst.put(data);
+            }
+        };
         Ok(())
+    }
+}
+
+impl Decoder for FrameCodec {
+    type Error = std::io::Error;
+    type Item = ReqFrame;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<ReqFrame>, Self::Error> {
+        if src.len() < ReqFrame::EOS_LEN {
+            return Ok(None);
+        }
+
+        let is_end_of_stream = src.get_u8() != 0;
+        if is_end_of_stream {
+            return Ok(Some(ReqFrame::End));
+        }
+
+        if src.len() < ReqFrame::SIZE_LEN {
+            return Ok(None);
+        }
+        let data_size = src.get_u32();
+
+        if src.len() < data_size as usize {
+            return Ok(None);
+        }
+
+        let data = src.split_to(data_size as usize).freeze();
+        let frame = ReqFrame::Data(data);
+
+        Ok(Some(frame))
     }
 }

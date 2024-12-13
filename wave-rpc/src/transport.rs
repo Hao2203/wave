@@ -16,17 +16,20 @@ pub trait Reader: Send {
     async fn read_io(&mut self, io: &mut (dyn AsyncRead + Unpin)) -> Result<(), io::Error>;
 }
 
-pub struct Connection {
-    io: Pin<Box<dyn Transport>>,
+pub struct Connection<T> {
+    io: T,
 }
 
-impl Connection {
-    pub fn new(io: impl Transport + 'static) -> Self {
-        Self { io: Box::pin(io) }
+impl<T> Connection<T> {
+    pub fn new(io: T) -> Self {
+        Self { io }
     }
 }
 
-impl Connection {
+impl<T> Connection<T>
+where
+    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
     pub async fn process(&mut self, receiver: Receiver<Command>) -> Result<(), io::Error> {
         while let Ok(cmd) = receiver.recv().await {
             match cmd {

@@ -49,7 +49,7 @@ impl RpcServer {
         async move {
             let header = Header::from_reader(&mut reader).await?;
             let body = Body::from_reader(reader);
-            let req = Request::new(header, body);
+            let req = todo!();
             let res = service.call(req).await?;
             res.write_into(&mut writer).await?;
 
