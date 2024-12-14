@@ -32,7 +32,7 @@ impl<T> Connection<T> {
         self.io.lock().take().expect("unexpected double stop")
     }
 
-    fn clone(&self) -> Self {
+    fn _clone(&self) -> Self {
         Self {
             io: self.io.clone(),
         }
@@ -44,7 +44,7 @@ where
     T: AsyncRead + Unpin,
 {
     pub fn get_reader(&self) -> ConnectionReader<T> {
-        ConnectionReader(self.clone())
+        ConnectionReader(self._clone())
     }
 }
 
@@ -53,7 +53,7 @@ where
     T: AsyncWrite + Unpin,
 {
     pub fn get_writer(&self) -> ConnectionWriter<T> {
-        ConnectionWriter(self.clone())
+        ConnectionWriter(self._clone())
     }
 }
 
@@ -175,6 +175,7 @@ where
 
 #[derive(Debug, Display, derive_more::Error)]
 pub enum Error {
+    #[display("connection is stopped")]
     ConnectionIsStopped,
 }
 

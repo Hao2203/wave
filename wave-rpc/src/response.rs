@@ -1,4 +1,5 @@
 #![allow(unused)]
+use bytes::Bytes;
 use futures_lite::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use zerocopy::IntoBytes;
 
@@ -48,4 +49,17 @@ impl Response {
         body.write_into(writer).await?;
         Ok(())
     }
+}
+
+enum ErrorCode {
+    Io,
+    ExtractFail,
+    ProcessMessageFail,
+    Other,
+}
+
+enum Frame {
+    Data(Bytes),
+    Error(ErrorCode),
+    End,
 }
