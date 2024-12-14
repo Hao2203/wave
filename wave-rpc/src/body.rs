@@ -1,8 +1,5 @@
 #![allow(unused)]
-use crate::{
-    error::{BoxError, Error, Result},
-    transport::ConnectionManager,
-};
+use crate::error::{BoxError, Error, Result};
 use async_compat::CompatExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_lite::{
@@ -99,21 +96,6 @@ impl Frame {
 
     pub fn new(data: Bytes) -> Frame {
         Frame::Data(data)
-    }
-
-    pub(crate) async fn from_connection_reader(
-        reader: &mut ConnectionManager,
-    ) -> crate::error::Result<Frame> {
-        let eos = reader.get_u8().await.unwrap();
-        match eos {
-            0 => Ok(Frame::End),
-            1 => {
-                let data_size = reader.get_u32().await.unwrap();
-                let data = reader.read(data_size as usize).await.unwrap();
-                Ok(Frame::Data(data.into()))
-            }
-            _ => Err(io::Error::from(io::ErrorKind::InvalidData).into()),
-        }
     }
 
     pub fn new_empty() -> Frame {

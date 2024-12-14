@@ -1,137 +1,185 @@
-#![allow(unused)]
-use crate::{code::Code, error::RpcError};
-use async_channel::{Receiver, RecvError, SendError, Sender};
-use async_trait::async_trait;
-use bytes::Buf;
-use derive_more::derive::{Display, From};
-use futures_lite::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use std::{future::Future, io, pin::Pin, sync::Arc};
+use derive_more::derive::Display;
+use futures_lite::{AsyncRead, AsyncWrite};
+use parking_lot::Mutex;
+use std::{io, pin::Pin, sync::Arc, task::Poll};
 
 pub trait Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 
 impl<T> Transport for T where T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {}
 
-#[async_trait]
-pub trait Reader: Send {
-    async fn read_io(&mut self, io: &mut (dyn AsyncRead + Unpin)) -> Result<(), io::Error>;
-}
-
+/// A connection manager that can be get reader and writer
 pub struct Connection<T> {
-    io: T,
+    io: Arc<Mutex<Option<T>>>,
 }
 
 impl<T> Connection<T> {
     pub fn new(io: T) -> Self {
-        Self { io }
+        Self {
+            io: Arc::new(Mutex::new(Some(io))),
+        }
+    }
+
+    /// Stop and return the underlying connection.
+    ///
+    /// This method is used to stop the connection manager and return the underlying connection.
+    /// It is used to stop the connection manager and return the underlying connection to the caller.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the connection manager has already been stopped.
+    ///
+    pub fn stop(self) -> T {
+        self.io.lock().take().expect("unexpected double stop")
+    }
+
+    fn clone(&self) -> Self {
+        Self {
+            io: self.io.clone(),
+        }
     }
 }
 
 impl<T> Connection<T>
 where
-    T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    T: AsyncRead + Unpin,
 {
-    pub async fn process(&mut self, receiver: Receiver<Command>) -> Result<(), io::Error> {
-        while let Ok(cmd) = receiver.recv().await {
-            match cmd {
-                Command::Read(mut reader) => {
-                    reader.read_io(&mut self.io).await?;
-                }
-                Command::Write(buf) => {
-                    self.io.write_all(&buf).await?;
-                }
-                Command::Close => {
-                    break;
-                }
+    pub fn get_reader(&self) -> ConnectionReader<T> {
+        ConnectionReader(self.clone())
+    }
+}
+
+impl<T> Connection<T>
+where
+    T: AsyncWrite + Unpin,
+{
+    pub fn get_writer(&self) -> ConnectionWriter<T> {
+        ConnectionWriter(self.clone())
+    }
+}
+
+impl<T> AsyncRead for Connection<T>
+where
+    T: AsyncRead + Unpin,
+{
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let mut reader = self.io.lock();
+        match *reader {
+            None => Poll::Ready(Err(Error::ConnectionIsStopped.into())),
+            Some(ref mut reader) => {
+                let reader = Pin::new(&mut *reader);
+                reader.poll_read(cx, buf)
             }
         }
-        Ok(())
     }
 }
 
-pub enum Command {
-    Read(Box<dyn Reader>),
-    Write(Arc<[u8]>),
-    Close,
-}
-
-#[derive(Debug, Clone)]
-pub struct ConnectionManager {
-    sender: Sender<Command>,
-}
-
-impl ConnectionManager {
-    pub fn new(sender: Sender<Command>) -> Self {
-        Self { sender }
-    }
-
-    /// Reads exactly `len` bytes from the underlying connection.
-    /// Not guaranteed to return exactly `len` bytes.
-    /// Returns an error if the underlying connection is closed.
-    pub async fn read(&self, len: usize) -> Result<Vec<u8>, Error> {
-        todo!()
-    }
-
-    pub async fn get_u8(&self) -> Result<u8, Error> {
-        let buf = self.read(1).await?;
-
-        if buf.len() != 1 {
-            return Err(Error::UnexpectedDataSize(buf.len()));
+impl<T> AsyncWrite for Connection<T>
+where
+    T: AsyncWrite + Unpin,
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let mut writer = self.io.lock();
+        match *writer {
+            None => Poll::Ready(Err(Error::ConnectionIsStopped.into())),
+            Some(ref mut writer) => {
+                let writer = Pin::new(&mut *writer);
+                writer.poll_write(cx, buf)
+            }
         }
-
-        Ok(buf[0])
     }
 
-    pub async fn get_u32(&self) -> Result<u32, Error> {
-        let buf = self.read(4).await?;
-
-        if buf.len() != 4 {
-            return Err(Error::UnexpectedDataSize(buf.len()));
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let mut writer = self.io.lock();
+        match *writer {
+            None => Poll::Ready(Err(Error::ConnectionIsStopped.into())),
+            Some(ref mut writer) => {
+                let writer = Pin::new(&mut *writer);
+                writer.poll_flush(cx)
+            }
         }
-
-        Ok(buf.as_slice().get_u32_le())
     }
 
-    pub async fn write(&self, data: Arc<[u8]>) -> Result<(), Error> {
-        self.sender.send(Command::Write(data)).await?;
-        Ok(())
-    }
-
-    pub async fn write_u8(&self, data: u8) -> Result<(), Error> {
-        self.write(Arc::from([data])).await
-    }
-
-    pub async fn write_u32(&self, data: u32) -> Result<(), Error> {
-        self.write(Arc::from(data.to_le_bytes())).await
-    }
-
-    pub async fn close(self) -> Result<(), Error> {
-        self.sender.send(Command::Close).await?;
-        Ok(())
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let mut writer = self.io.lock();
+        match *writer {
+            None => Poll::Ready(Err(Error::ConnectionIsStopped.into())),
+            Some(ref mut writer) => {
+                let writer = Pin::new(&mut *writer);
+                writer.poll_close(cx)
+            }
+        }
     }
 }
 
-#[derive(Debug, Display, From, derive_more::Error)]
+pub struct ConnectionReader<T>(Connection<T>);
+
+impl<T> AsyncRead for ConnectionReader<T>
+where
+    T: AsyncRead + Unpin,
+{
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let reader = Pin::new(&mut self.get_mut().0);
+        reader.poll_read(cx, buf)
+    }
+}
+
+pub struct ConnectionWriter<T>(Connection<T>);
+
+impl<T> AsyncWrite for ConnectionWriter<T>
+where
+    T: AsyncWrite + Unpin,
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let writer = Pin::new(&mut self.get_mut().0);
+        writer.poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let writer = Pin::new(&mut self.get_mut().0);
+        writer.poll_flush(cx)
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let writer = Pin::new(&mut self.get_mut().0);
+        writer.poll_close(cx)
+    }
+}
+
+#[derive(Debug, Display, derive_more::Error)]
 pub enum Error {
-    SendCommandError,
-    ReceiverError(async_channel::RecvError),
-    OneshotReceiverEror(oneshot::RecvError),
-    OneshotSendError(oneshot::SendError<Vec<u8>>),
-    #[from(ignore)]
-    UnexpectedDataSize(#[error(not(source))] usize),
-    Io(io::Error),
+    ConnectionIsStopped,
 }
 
-impl<T> From<async_channel::SendError<T>> for Error {
-    fn from(_: async_channel::SendError<T>) -> Self {
-        Error::SendCommandError
-    }
-}
-
-impl RpcError for Error {
-    fn code(&self) -> Code {
-        match self {
-            Self::Io(e) => e.code(),
-            _ => Code::InternalServerError,
-        }
+impl From<Error> for io::Error {
+    fn from(err: Error) -> Self {
+        io::Error::new(io::ErrorKind::Other, err)
     }
 }

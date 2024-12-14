@@ -4,7 +4,7 @@ use crate::{
     error::{BoxError, Error, Result},
     request::{Header, Request},
     response::Response,
-    transport::{Connection, ConnectionManager, Transport},
+    transport::{Connection, Transport},
 };
 use async_compat::CompatExt;
 use async_trait::async_trait;
