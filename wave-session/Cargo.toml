@@ -11,14 +11,13 @@ derive_more = { version = "1.0.0-beta.7", features = [
     "display",
     "as_ref",
 ] }
-zerocopy = { version = "0.7", features = ["derive"] }
+zerocopy = { version = "0.8", features = ["derive"] }
 serde_bytes = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_with = { version = "3.9" }
 
 async-trait = { workspace = true }
-async-channel = { workspace = true }
 async-stream = "0.3"
 
 anyhow = { workspace = true }

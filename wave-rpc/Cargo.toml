@@ -13,7 +13,7 @@ bytes = { version = "1.9" }
 
 futures-lite = { version = "2" }
 async-trait = { workspace = true }
-async-stream = { workspace = true }
+async-stream = { version = "*" }
 async-channel = { version = "2.3" }
 async-compat = "0.2"
 oneshot = { version = "0.1", features = ["async"] }
