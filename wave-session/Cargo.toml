@@ -10,6 +10,7 @@ derive_more = { version = "1.0.0-beta.7", features = [
     "from",
     "display",
     "as_ref",
+    "error",
 ] }
 zerocopy = { version = "0.8", features = ["derive"] }
 serde_bytes = { workspace = true }
@@ -21,7 +22,6 @@ async-trait = { workspace = true }
 async-stream = "0.3"
 
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 
 futures = { workspace = true }
 tokio = { workspace = true, features = [] }
