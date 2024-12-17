@@ -22,7 +22,7 @@ async-stream = "0.3"
 
 anyhow = { workspace = true }
 
-futures = { workspace = true }
+futures-lite = { workspace = true }
 tokio = { workspace = true, features = [] }
 
 ulid = { version = "1.1", features = ["serde"] }

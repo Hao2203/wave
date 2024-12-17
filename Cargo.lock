@@ -4394,7 +4394,7 @@ dependencies = [
  "bytes",
  "chrono",
  "derive_more 1.0.0",
- "futures",
+ "futures-lite 2.5.0",
  "serde",
  "serde_bytes",
  "serde_json",
