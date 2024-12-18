@@ -1,5 +1,6 @@
 use iroh::PublicKey;
 
+pub mod account;
 pub mod server;
 #[cfg(test)]
 mod test;
@@ -18,3 +19,7 @@ mod test;
     derive_more::From,
 )]
 pub struct Address(PublicKey);
+
+pub trait Node {
+    fn address(&self) -> Address;
+}

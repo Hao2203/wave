@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 wave-core = { path = "../wave-core" }
+iroh-gossip = { version = "0.30" }
+
 derive_more = { version = "1.0.0-beta.7", features = [
     "from",
     "display",
@@ -14,8 +16,8 @@ derive_more = { version = "1.0.0-beta.7", features = [
 zerocopy = { version = "0.8", features = ["derive"] }
 serde_bytes = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 serde_with = { version = "3.9" }
+postcard = { version = "1.0" }
 
 async-trait = { workspace = true }
 async-stream = "0.3"

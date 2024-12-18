@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 iroh = { version = "0.30" }
+ed25519-dalek = { version = "2" }
+
 derive_more = { version = "*", features = [
     "from",
     "display",

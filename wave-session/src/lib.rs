@@ -1,30 +1,19 @@
 use async_trait::async_trait;
 use bytes::Bytes;
+use chat::ChatId;
 use futures_lite::stream::Boxed as BoxStream;
 
+pub mod chat;
 pub mod error;
+pub mod message;
 
 #[cfg(test)]
 mod test;
 
-#[derive(Debug)]
-pub struct Session {
-    pub name: String,
-}
-
-impl Session {
-    pub fn new(name: String) -> Session {
-        Session { name }
-    }
-}
-
 #[async_trait]
-pub trait Manager {
+pub trait ChatTopic {
     type Error;
-    type TopicId;
-    async fn create(&self, name: String) -> Result<Self::TopicId, Self::Error>;
+    async fn subscribe(&self, chat_id: ChatId) -> Result<BoxStream<Bytes>, Self::Error>;
 
-    async fn publish(&self, topic: &Self::TopicId, bytes: Bytes) -> Result<(), Self::Error>;
-
-    async fn subscribe(&self, topic: &Self::TopicId) -> Result<BoxStream<Bytes>, Self::Error>;
+    async fn publish(&self, chat_id: ChatId, message: Bytes) -> Result<(), Self::Error>;
 }
