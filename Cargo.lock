@@ -4456,6 +4456,7 @@ version = "0.1.0"
 dependencies = [
  "derive_more 0.99.18",
  "ed25519-dalek",
+ "rand",
  "serde",
 ]
 
