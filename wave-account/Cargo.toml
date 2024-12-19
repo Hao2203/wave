@@ -1,0 +1,15 @@
+[package]
+name = "wave-account"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ed25519-dalek = { version = "2" }
+
+derive_more = { version = "*", features = [
+    "from",
+    "display",
+    "as_ref",
+    "as_mut",
+] }
+serde = { workspace = true, features = ["derive"] }

@@ -4451,6 +4451,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wave-account"
+version = "0.1.0"
+dependencies = [
+ "derive_more 0.99.18",
+ "ed25519-dalek",
+ "serde",
+]
+
+[[package]]
 name = "wave-core"
 version = "0.1.0"
 dependencies = [
@@ -4459,7 +4468,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "derive_more 0.99.18",
- "ed25519-dalek",
  "futures-lite 2.5.0",
  "iroh",
  "serde",

@@ -1,6 +1,5 @@
 use iroh::PublicKey;
 
-pub mod account;
 pub mod server;
 #[cfg(test)]
 mod test;
