@@ -1,35 +1,42 @@
 #![allow(unused)]
-use derive_more::From;
+use derive_more::{Display, From};
 use ed25519_dalek::{SigningKey, VerifyingKey};
-
-pub struct Account {
-    name: String,
-}
 
 #[derive(Debug, Clone, From)]
 #[from(forward)]
-pub struct AccountId(VerifyingKey);
+pub struct Id(VerifyingKey);
 
-impl AccountId {}
+impl Id {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
 
-pub struct AccountSecretKey(SigningKey);
+impl From<SecretKey> for Id {
+    fn from(value: SecretKey) -> Self {
+        value.account_id()
+    }
+}
 
-impl AccountSecretKey {
+#[derive(Debug, Clone, From)]
+pub struct SecretKey(SigningKey);
+
+impl SecretKey {
     pub fn new() -> Self {
         let mut rng = rand::rngs::OsRng;
-        AccountSecretKey(SigningKey::generate(&mut rng))
+        SecretKey(SigningKey::generate(&mut rng))
     }
 
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
     }
 
-    pub fn account_id(&self) -> AccountId {
-        AccountId(VerifyingKey::from(&self.0))
+    pub fn account_id(&self) -> Id {
+        Id(VerifyingKey::from(&self.0))
     }
 }
 
-impl Default for AccountSecretKey {
+impl Default for SecretKey {
     fn default() -> Self {
         Self::new()
     }
