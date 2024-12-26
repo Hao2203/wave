@@ -1,5 +1,4 @@
 use derive_more::derive::Display;
-use std::fmt::Display;
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
@@ -29,28 +28,17 @@ impl std::error::Error for Error {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorKind {
+    #[display("Unexpected error")]
     Unexpected,
+    #[display("IO error: {}", _0)]
+    IoError(std::io::ErrorKind),
 }
 
-impl ErrorKind {
-    pub fn into_str(self) -> &'static str {
-        self.into()
-    }
-}
-
-impl Display for ErrorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.into_str())
-    }
-}
-
-impl From<ErrorKind> for &'static str {
-    fn from(kind: ErrorKind) -> Self {
-        match kind {
-            ErrorKind::Unexpected => "Unexpected",
-        }
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::with_source(ErrorKind::IoError(e.kind()), e)
     }
 }

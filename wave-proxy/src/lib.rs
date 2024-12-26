@@ -1,10 +1,20 @@
-use crate::error::Result;
+pub use crate::error::{Error, Result};
 use async_channel::Receiver;
 use futures_lite::{Stream, StreamExt as _};
 use std::{net::SocketAddr, ops::Not, pin::Pin};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod error;
+pub mod socks5;
+
+pub trait ProxyBuilder {
+    type Stream: Stream<Item = Result<Incoming>> + Send + Unpin + 'static;
+    fn build(self) -> impl std::future::Future<Output = Result<Self::Stream>> + Send;
+}
+
+pub trait Io: AsyncRead + AsyncWrite + Send + Unpin {}
+
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> Io for T {}
 
 type Inner = Pin<Box<Receiver<Result<Incoming>>>>;
 
@@ -44,18 +54,20 @@ impl Stream for Proxy {
 }
 
 pub struct Incoming {
-    pub target_addr: TargetAddr,
+    pub target: Target,
     pub io: Box<dyn Io>,
 }
 
-pub enum TargetAddr {
+impl Incoming {
+    pub fn new(target: impl Into<Target>, io: impl Io + 'static) -> Self {
+        Self {
+            target: target.into(),
+            io: Box::new(io),
+        }
+    }
+}
+
+pub enum Target {
     Ip(SocketAddr),
     Domain(String, u16),
 }
-
-pub trait ProxyBuilder {
-    type Stream: Stream<Item = Result<Incoming>> + Send + Unpin + 'static;
-    fn build(self) -> impl std::future::Future<Output = Result<Self::Stream>> + Send;
-}
-
-pub trait Io: AsyncRead + AsyncWrite + Send + Unpin {}
