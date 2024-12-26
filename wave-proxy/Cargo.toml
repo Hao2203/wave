@@ -1,0 +1,14 @@
+[package]
+name = "wave-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fast-socks5 = "0.10"
+
+futures-lite = { workspace = true }
+tokio = { workspace = true }
+async-channel = { workspace = true }
+derive_more = { workspace = true, features = ["from", "display", "error"] }
+tracing = { workspace = true }
+anyhow = { workspace = true }
