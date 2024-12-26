@@ -6,7 +6,10 @@ use futures_lite::{
     StreamExt,
 };
 
-use crate::{error::ErrorKind, Incoming, ProxyBuilder, Result};
+use crate::{
+    error::{Context, ErrorKind},
+    Error, Incoming, ProxyBuilder, Result,
+};
 
 pub struct Socks5 {
     addr: SocketAddr,
@@ -18,28 +21,34 @@ impl Socks5 {
     }
 
     async fn socks5_stream(self) -> Result<Boxed<Result<Incoming>>> {
-        let server: Socks5Server = Socks5Server::bind(self.addr).await?;
-        let stream = stream::unfold(server, |server| async move {
+        let server: Socks5Server = Socks5Server::bind(self.addr)
+            .await
+            .map_err(|e| Error::new(e.kind(), "failed to bind socks5 server"))?;
+
+        let stream = stream::try_unfold(server, |server| async move {
             let mut incoming = server.incoming();
-            let res = if let Some(res) = incoming.next().await {
-                Some(match res {
-                    Err(e) => {
-                        tracing::warn!("failed to accept incoming: {}", e);
-                        Err(e.into())
-                    }
-                    Ok(socks5) => {
-                        let socks5 = socks5.upgrade_to_socks5().await.unwrap();
-                        let target_addr = socks5.target_addr().unwrap().clone();
-                        let io = socks5.into_inner();
-                        Ok(Incoming::new(target_addr, io))
-                    }
-                })
-            } else {
-                None
-            };
-            drop(incoming);
-            res.map(|res| (res, server))
+
+            if let Some(res) = incoming.next().await {
+                let socks5 = res
+                    .context("failed to accept socks5 connection")?
+                    .upgrade_to_socks5()
+                    .await
+                    .context("failed to upgrade to socks5")?;
+
+                let target_addr = socks5
+                    .target_addr()
+                    .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
+                    .clone();
+                let io = socks5.into_inner();
+
+                drop(incoming);
+
+                return Ok(Some((Incoming::new(target_addr, io), server)));
+            }
+
+            Ok(None)
         });
+
         Ok(stream.boxed())
     }
 }
@@ -61,8 +70,17 @@ impl From<TargetAddr> for crate::Target {
     }
 }
 
-impl From<SocksError> for crate::Error {
-    fn from(e: SocksError) -> Self {
-        Self::with_source(ErrorKind::Unexpected, e)
+impl From<&SocksError> for ErrorKind {
+    fn from(value: &SocksError) -> Self {
+        type E = SocksError;
+        match value {
+            E::Io(e) => e.into(),
+            E::InvalidHeader {
+                expected: _,
+                found: _,
+            }
+            | E::UnsupportedSocksVersion(_) => ErrorKind::UnSupportedProxyProtocol,
+            _ => ErrorKind::Unexpected,
+        }
     }
 }
