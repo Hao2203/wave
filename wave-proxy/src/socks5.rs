@@ -6,10 +6,7 @@ use futures_lite::{
     StreamExt,
 };
 
-use crate::{
-    error::{Context, ErrorKind},
-    Error, Incoming, ProxyBuilder, Result,
-};
+use crate::{error::Context, Error, ErrorKind, Incoming, ProxyBuilder, Result};
 
 pub struct Socks5 {
     addr: SocketAddr,

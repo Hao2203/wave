@@ -55,7 +55,7 @@ impl From<&std::io::Error> for ErrorKind {
     }
 }
 
-pub trait Context {
+pub(crate) trait Context {
     type Item;
     fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item>;
 }

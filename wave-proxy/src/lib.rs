@@ -1,4 +1,4 @@
-pub use crate::error::{Error, Result};
+pub use crate::error::{Error, ErrorKind, Result};
 use async_channel::Receiver;
 use futures_lite::{Stream, StreamExt as _};
 use std::{net::SocketAddr, ops::Not, pin::Pin};
