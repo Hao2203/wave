@@ -1,6 +1,6 @@
-use std::borrow::Cow;
-
+#![allow(unused)]
 use derive_more::derive::{Display, From};
+use std::borrow::Cow;
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
