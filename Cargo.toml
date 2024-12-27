@@ -4,7 +4,6 @@ members = [
     "wave-account",
     "wave-core",
     "wave-proxy",
-    "wave-rpc",
     "wave-session",
 ]
 resolver = "2"
