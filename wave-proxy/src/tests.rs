@@ -1,17 +1,20 @@
 #![allow(unused)]
 use super::*;
 
-// #[tokio::test]
-// async fn test() {
-//     use crate::socks5::*;
+#[tokio::test]
+async fn test() {
+    use crate::socks5::*;
 
-//     println!("test");
-//     let s = Socks5::new("172.27.197.215:555".parse().unwrap());
-//     let mut proxy = ProxyServer::new(s).await.unwrap();
+    let proxy = ProxyServer::builder(Socks5 {})
+        .bind("127.0.0.1:1234".parse().unwrap())
+        .build()
+        .await
+        .unwrap();
 
-//     while let Some(res) = proxy.next().await {
-//         let Incoming { target, io } = res.unwrap();
-//         drop(io);
-//         println!("{:?}", target);
-//     }
-// }
+    while let Ok(res) = proxy.accept().await {
+        tokio::spawn(async move {
+            let res = res.start_proxy().await.unwrap();
+            println!("{:?}", res.target);
+        });
+    }
+}

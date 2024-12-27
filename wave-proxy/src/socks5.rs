@@ -1,6 +1,7 @@
-use crate::{error::Context, Error, ErrorKind, Incoming, ProxyBuilder, Result, Target};
+#![allow(unused)]
+use crate::{error::Context, Error, ErrorKind, Incoming, Info, Io, Proxy, Result, Target};
 use fast_socks5::{
-    server::{AcceptAuthentication, Config, Socks5Server},
+    server::{AcceptAuthentication, Config, Socks5Server, Socks5Socket},
     util::target_addr::TargetAddr,
     SocksError,
 };
@@ -8,58 +9,28 @@ use futures_lite::{
     stream::{self, Boxed},
     StreamExt,
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
-pub struct Socks5 {
-    addr: SocketAddr,
-}
+pub struct Socks5 {}
 
-impl Socks5 {
-    pub fn new(addr: SocketAddr) -> Self {
-        Self { addr }
-    }
-
-    async fn socks5_stream(self) -> Result<Boxed<Result<Incoming>>> {
+#[async_trait::async_trait]
+impl Proxy for Socks5 {
+    async fn proxy(&self, conn: Box<dyn Io>) -> Result<(Info, Box<dyn Io>)> {
         let config = Config::<AcceptAuthentication>::default();
-        let server = Socks5Server::<AcceptAuthentication>::bind(self.addr)
+        let socks5 = Socks5Socket::new(conn, Arc::new(config));
+        let socks5 = socks5
+            .upgrade_to_socks5()
             .await
-            .context("failed to bind socks5 server")?
-            .with_config(config);
-
-        let ip = self.addr.ip();
-        let stream = stream::try_unfold(server, move |server| async move {
-            let mut incoming = server.incoming();
-
-            if let Some(res) = incoming.next().await {
-                let mut socks5 = res.context("failed to accept socks5 connection")?;
-                socks5.set_reply_ip(ip);
-                println!("accept socks5 connection");
-                let socks5 = socks5
-                    .upgrade_to_socks5()
-                    .await
-                    .context("failed to upgrade to socks5")?;
-                println!("upgrade to socks5");
-                let target_addr: Target = socks5
-                    .target_addr()
-                    .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
-                    .into();
-                drop(incoming);
-
-                return Ok(Some((Incoming::new(target_addr, socks5), server)));
-            }
-
-            Ok(None)
-        });
-
-        Ok(stream.boxed())
-    }
-}
-
-impl ProxyBuilder for Socks5 {
-    type Stream = Boxed<Result<Incoming>>;
-
-    fn build(self) -> impl std::future::Future<Output = Result<Self::Stream>> + Send {
-        self.socks5_stream()
+            .context("failed to upgrade to socks5")?;
+        println!("upgrade to socks5");
+        let target_addr: Target = socks5
+            .target_addr()
+            .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
+            .into();
+        let info = Info {
+            target: target_addr,
+        };
+        Ok((info, Box::new(socks5)))
     }
 }
 
