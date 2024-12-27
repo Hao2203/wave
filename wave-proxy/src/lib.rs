@@ -6,6 +6,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod error;
 pub mod socks5;
+#[cfg(test)]
+mod tests;
 
 pub trait ProxyBuilder {
     type Stream: Stream<Item = Result<Incoming>> + Send + Unpin + 'static;
@@ -67,6 +69,7 @@ impl Incoming {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum Target {
     Ip(SocketAddr),
     Domain(String, u16),

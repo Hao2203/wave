@@ -1,12 +1,14 @@
-use std::net::SocketAddr;
-
-use fast_socks5::{server::Socks5Server, util::target_addr::TargetAddr, SocksError};
+use crate::{error::Context, Error, ErrorKind, Incoming, ProxyBuilder, Result, Target};
+use fast_socks5::{
+    server::{AcceptAuthentication, Config, Socks5Server},
+    util::target_addr::TargetAddr,
+    SocksError,
+};
 use futures_lite::{
     stream::{self, Boxed},
     StreamExt,
 };
-
-use crate::{error::Context, Error, ErrorKind, Incoming, ProxyBuilder, Result};
+use std::net::SocketAddr;
 
 pub struct Socks5 {
     addr: SocketAddr,
@@ -18,29 +20,32 @@ impl Socks5 {
     }
 
     async fn socks5_stream(self) -> Result<Boxed<Result<Incoming>>> {
-        let server: Socks5Server = Socks5Server::bind(self.addr)
+        let config = Config::<AcceptAuthentication>::default();
+        let server = Socks5Server::<AcceptAuthentication>::bind(self.addr)
             .await
-            .map_err(|e| Error::new(e.kind(), "failed to bind socks5 server"))?;
+            .context("failed to bind socks5 server")?
+            .with_config(config);
 
-        let stream = stream::try_unfold(server, |server| async move {
+        let ip = self.addr.ip();
+        let stream = stream::try_unfold(server, move |server| async move {
             let mut incoming = server.incoming();
 
             if let Some(res) = incoming.next().await {
-                let socks5 = res
-                    .context("failed to accept socks5 connection")?
+                let mut socks5 = res.context("failed to accept socks5 connection")?;
+                socks5.set_reply_ip(ip);
+                println!("accept socks5 connection");
+                let socks5 = socks5
                     .upgrade_to_socks5()
                     .await
                     .context("failed to upgrade to socks5")?;
-
-                let target_addr = socks5
+                println!("upgrade to socks5");
+                let target_addr: Target = socks5
                     .target_addr()
                     .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
-                    .clone();
-                let io = socks5.into_inner();
-
+                    .into();
                 drop(incoming);
 
-                return Ok(Some((Incoming::new(target_addr, io), server)));
+                return Ok(Some((Incoming::new(target_addr, socks5), server)));
             }
 
             Ok(None)
@@ -58,11 +63,11 @@ impl ProxyBuilder for Socks5 {
     }
 }
 
-impl From<TargetAddr> for crate::Target {
-    fn from(addr: TargetAddr) -> Self {
+impl From<&TargetAddr> for crate::Target {
+    fn from(addr: &TargetAddr) -> Self {
         match addr {
-            TargetAddr::Ip(ip) => Self::Ip(ip),
-            TargetAddr::Domain(domain, port) => Self::Domain(domain, port),
+            TargetAddr::Ip(ip) => Self::Ip(*ip),
+            TargetAddr::Domain(domain, port) => Self::Domain(domain.clone(), *port),
         }
     }
 }
