@@ -1,11 +1,14 @@
-use bytes::{BufMut, Bytes, BytesMut};
-use std::{io, pin::Pin};
+use std::{
+    io::{self, Cursor},
+    pin::Pin,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 /// A wrapper around an `AsyncRead` that reads from a buffer first.
+#[pin_project::pin_project]
 pub struct IoPreHandler<T> {
-    buf: Bytes,
-    current: Bytes,
+    buf: Cursor<Vec<u8>>,
+    #[pin]
     io: T,
 }
 
@@ -24,11 +27,10 @@ where
     /// attempting to fill the buffer, the `IoReader` will return the same error
     /// or EOF on the next call to `poll_read`.
     pub async fn new(mut io: T, buf_length: usize) -> Result<Self, io::Error> {
-        let mut buf = BytesMut::with_capacity(buf_length);
+        let mut buf = Vec::with_capacity(buf_length);
         io.read_buf(&mut buf).await?;
-        let buf = buf.freeze();
-        let current = buf.clone();
-        Ok(IoPreHandler { buf, current, io })
+        let buf = Cursor::new(buf);
+        Ok(IoPreHandler { buf, io })
     }
 }
 
@@ -39,32 +41,23 @@ impl<T> IoPreHandler<T> {
 
     /// Reset the internal buffer to the beginning of the internal buffer.
     pub fn reset(&mut self) {
-        self.current = self.buf.clone();
+        self.buf.set_position(0);
     }
 }
 
 impl<T> AsyncRead for IoPreHandler<T>
 where
-    T: AsyncRead + Send + Unpin,
+    T: AsyncRead + Send,
 {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<io::Result<()>> {
-        let this = self.get_mut();
-
-        // read from current
-        if this.current.len() >= buf.remaining() {
-            let data = this.current.split_to(buf.remaining());
-            buf.put(data);
-            std::task::Poll::Ready(Ok(()))
-        } else {
-            buf.put(this.current.clone());
-            this.current.clear();
-            let io = Pin::new(&mut this.io);
-            io.poll_read(cx, buf)
-        }
+        let this = self.project();
+        let mut reader = this.buf.chain(this.io);
+        let reader = Pin::new(&mut reader);
+        reader.poll_read(cx, buf)
     }
 }
 
@@ -103,8 +96,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use io::Cursor;
-
     use super::*;
 
     #[tokio::test]
