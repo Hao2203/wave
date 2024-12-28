@@ -4466,6 +4466,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "async-trait",
+ "bytes",
  "derive_more 1.0.0",
  "fast-socks5",
  "futures-lite 2.5.0",

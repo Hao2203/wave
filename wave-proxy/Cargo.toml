@@ -7,12 +7,13 @@ edition = "2021"
 fast-socks5 = "0.10"
 
 futures-lite = { workspace = true }
-tokio = { workspace = true, features = ["rt", "net"] }
+tokio = { workspace = true, features = ["rt", "net", "io-util"] }
 async-channel = { workspace = true }
 async-trait = { workspace = true }
 derive_more = { workspace = true, features = ["from", "display", "error"] }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

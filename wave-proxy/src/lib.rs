@@ -10,6 +10,7 @@ pub mod error;
 pub mod socks5;
 #[cfg(test)]
 mod tests;
+pub mod util;
 
 #[async_trait::async_trait]
 pub trait Proxy: Send + Sync {
