@@ -1,17 +1,18 @@
+use bytes::BytesMut;
 use futures_lite::ready;
 use std::{
+    future::Future,
     io::{self, Cursor},
-    pin::Pin,
+    pin::pin,
 };
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 /// A wrapper around an `AsyncRead` that reads from a buffer first.
 #[pin_project::pin_project]
 pub struct IoPreHandler<T> {
-    buf: Option<Cursor<Vec<u8>>>,
+    buf: Cursor<BytesMut>,
     #[pin]
     io: T,
-    limit: usize,
 }
 
 impl<T> IoPreHandler<T>
@@ -30,8 +31,7 @@ where
     /// or EOF on the next call to `poll_read`.
     pub fn new(io: T, buf_length: usize) -> Self {
         IoPreHandler {
-            buf: None,
-            limit: buf_length,
+            buf: Cursor::new(BytesMut::with_capacity(buf_length)),
             io,
         }
     }
@@ -44,9 +44,7 @@ impl<T> IoPreHandler<T> {
 
     /// Reset the internal buffer to the beginning of the internal buffer.
     pub fn reset(&mut self) {
-        if let Some(buf) = &mut self.buf {
-            buf.set_position(0);
-        }
+        self.buf.set_position(0);
     }
 }
 
@@ -61,16 +59,12 @@ where
     ) -> std::task::Poll<io::Result<()>> {
         let this = self.project();
         let mut io = this.io;
-        let inner_buf = this.buf.get_or_insert_with(|| {
-            let buf = vec![0; *this.limit];
-            Cursor::new(buf)
-        });
-        // let this = self.project();
-        let io2 = Pin::new(&mut io);
-        ready!(io2.poll_read(cx, &mut ReadBuf::new(inner_buf.get_mut())))?;
-        let mut reader = inner_buf.chain(io);
-        let reader = Pin::new(&mut reader);
-        reader.poll_read(cx, buf)
+        if this.buf.get_ref().is_empty() {
+            let fut = io.read_buf(this.buf.get_mut());
+            ready!(pin!(fut).poll(cx))?;
+        }
+        let mut reader = this.buf.chain(io);
+        pin!(reader).poll_read(cx, buf)
     }
 }
 
