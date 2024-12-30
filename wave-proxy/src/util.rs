@@ -15,10 +15,7 @@ pub struct IoPreHandler<T> {
     io: T,
 }
 
-impl<T> IoPreHandler<T>
-where
-    T: AsyncRead + Send + Unpin,
-{
+impl<T> IoPreHandler<T> {
     /// Create a new `IoReader` with an internal buffer of `buf_length` bytes.
     ///
     /// The internal buffer is filled with data from the underlying `io` on
@@ -35,9 +32,7 @@ where
             io,
         }
     }
-}
 
-impl<T> IoPreHandler<T> {
     pub fn into_inner(self) -> T {
         self.io
     }

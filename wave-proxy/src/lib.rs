@@ -100,7 +100,7 @@ impl Incoming {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Target {
     Ip(SocketAddr),
     Domain(String, u16),

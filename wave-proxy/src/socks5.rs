@@ -17,7 +17,8 @@ pub struct Socks5 {}
 impl Proxy for Socks5 {
     async fn proxy(&self, conn: Box<dyn Io>) -> Result<(Info, Box<dyn Io>)> {
         let mut config = Config::<AcceptAuthentication>::default();
-        config.set_execute_command(false);
+        config.set_allow_no_auth(true);
+        // config.set_execute_command(false);
         let socks5 = Socks5Socket::new(conn, Arc::new(config));
         let socks5 = socks5
             .upgrade_to_socks5()
