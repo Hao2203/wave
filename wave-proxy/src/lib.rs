@@ -1,5 +1,9 @@
 pub use crate::error::{Error, ErrorKind, Result};
-use std::{borrow::Cow, net::SocketAddr, pin::Pin};
+use std::{
+    borrow::Cow,
+    net::SocketAddr,
+    pin::{pin, Pin},
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use util::IoPreHandler;
 
@@ -16,16 +20,19 @@ impl<T: AsyncRead + AsyncWrite + Send> Connection for T {}
 pub type BoxConnection = Pin<Box<dyn Connection>>;
 
 #[async_trait::async_trait]
-pub trait ProxyCtx: Sync {
-    async fn upstream_session(&self, info: &ProxyInfo) -> Result<Option<UpstreamSession>>;
+pub trait ProxyCtx: Send {
+    async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<Option<UpstreamSession>>;
 }
 
 #[async_trait::async_trait]
 pub trait Proxy: Sync {
     const ROUTE_SIZE: usize;
 
-    async fn proxy_incoming(&self, ctx: &dyn ProxyCtx, incoming: &mut dyn Connection)
-        -> Result<()>;
+    async fn proxy_incoming(
+        &self,
+        ctx: &mut dyn ProxyCtx,
+        incoming: &mut (dyn Connection + Unpin),
+    ) -> Result<()>;
 }
 
 pub struct ProxyChain<T1, T2>(T1, T2);
@@ -44,8 +51,8 @@ where
 
     async fn proxy_incoming(
         &self,
-        ctx: &dyn ProxyCtx,
-        incoming: &mut dyn Connection,
+        ctx: &mut dyn ProxyCtx,
+        incoming: &mut (dyn Connection + Unpin),
     ) -> Result<()> {
         let res = self.0.proxy_incoming(ctx, incoming).await;
         if let Err(e) = &res {
@@ -77,32 +84,28 @@ pub enum Target {
     Domain(String, u16),
 }
 
-pub struct Builder<T, Ctx> {
+pub struct Builder<T> {
     proxy: T,
-    ctx: Ctx,
 }
 
-impl<T, Ctx> Builder<T, Ctx> {
-    pub fn new(proxy: T, ctx: Ctx) -> Self {
-        Self { proxy, ctx }
+impl<T> Builder<T> {
+    pub fn new(proxy: T) -> Self {
+        Self { proxy }
     }
 
-    pub fn add_proxy<T2>(self, proxy: T2) -> Builder<ProxyChain<T, T2>, Ctx> {
+    pub fn add_proxy<T2>(self, proxy: T2) -> Builder<ProxyChain<T, T2>> {
         let proxy = ProxyChain(self.proxy, proxy);
-        Builder {
-            proxy,
-            ctx: self.ctx,
-        }
+        Builder { proxy }
     }
 }
 
-impl<T, Ctx> Builder<T, Ctx>
+impl<T> Builder<T>
 where
     T: Proxy,
-    Ctx: ProxyCtx,
 {
-    pub async fn serve(&self, io: impl Connection) -> Result<()> {
-        let mut incoming = IoPreHandler::new(io, T::ROUTE_SIZE);
-        self.proxy.proxy_incoming(&self.ctx, &mut incoming).await
+    pub async fn serve(&self, mut ctx: impl ProxyCtx, io: impl Connection) -> Result<()> {
+        let mut io = IoPreHandler::new(io, T::ROUTE_SIZE);
+        let mut incoming = pin!(io);
+        self.proxy.proxy_incoming(&mut ctx, &mut incoming).await
     }
 }
