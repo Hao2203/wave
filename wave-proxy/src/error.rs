@@ -25,6 +25,10 @@ impl Error {
         self.source = Some(source.into());
         self
     }
+
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
 }
 
 impl std::error::Error for Error {

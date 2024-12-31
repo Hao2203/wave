@@ -37,6 +37,14 @@ impl<T> IoPreHandler<T> {
         self.io
     }
 
+    pub fn buffer_capacity(&self) -> usize {
+        self.buf.get_ref().capacity()
+    }
+
+    pub fn buffer_len(&self) -> usize {
+        self.buf.get_ref().len()
+    }
+
     /// Reset the internal buffer to the beginning of the internal buffer.
     pub fn reset(&mut self) {
         self.buf.set_position(0);
