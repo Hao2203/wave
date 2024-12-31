@@ -96,10 +96,10 @@ impl<T, Ctx> Builder<T, Ctx> {
     }
 }
 
-impl<T, App> Builder<T, App>
+impl<T, Ctx> Builder<T, Ctx>
 where
     T: Proxy,
-    App: ProxyCtx,
+    Ctx: ProxyCtx,
 {
     pub async fn serve(&self, io: impl Connection) -> Result<()> {
         let mut incoming = IoPreHandler::new(io, T::ROUTE_SIZE);
