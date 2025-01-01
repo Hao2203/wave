@@ -20,7 +20,9 @@ async fn test() {
         fn local_addr(&self) -> SocketAddr {
             self.0
         }
-        async fn upstream_session(&mut self, _info: &ProxyInfo) -> Result<()> {
+        async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<()> {
+            let target = &info.target;
+            assert_eq!(*target, Target::Ip("127.0.0.1:80".parse().unwrap()));
             Ok(())
         }
         async fn process_tunnel(&mut self, tunnel: &mut (dyn Connection + Unpin)) -> Result<()> {
@@ -64,5 +66,7 @@ async fn test() {
         client.write_all(&headers_clone).await.unwrap();
     });
 
-    let _ = zip(client_task, server_task).await;
+    let (res1, res2) = zip(client_task, server_task).await;
+    res1.unwrap();
+    res2.unwrap();
 }
