@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use util::IoPreHandler;
 
 pub mod error;
-// pub mod socks5;
+pub mod socks5;
 // #[cfg(test)]
 // mod tests;
 pub mod util;
@@ -21,7 +21,8 @@ pub type BoxConnection = Pin<Box<dyn Connection>>;
 
 #[async_trait::async_trait]
 pub trait ProxyCtx: Send {
-    async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<Option<UpstreamSession>>;
+    fn local_addr(&self) -> SocketAddr;
+    async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<UpstreamSession>;
 }
 
 #[async_trait::async_trait]
