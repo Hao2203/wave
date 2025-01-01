@@ -20,7 +20,7 @@ async fn test() {
         fn local_addr(&self) -> SocketAddr {
             self.0
         }
-        async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<()> {
+        async fn proxy_info_filter(&mut self, info: &ProxyInfo) -> Result<()> {
             let target = &info.target;
             assert_eq!(*target, Target::Ip("127.0.0.1:80".parse().unwrap()));
             Ok(())

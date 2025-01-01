@@ -23,7 +23,7 @@ pub type BoxConnection = Pin<Box<dyn Connection>>;
 pub trait ProxyCtx: Send {
     fn local_addr(&self) -> SocketAddr;
 
-    async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<()>;
+    async fn proxy_info_filter(&mut self, info: &ProxyInfo) -> Result<()>;
 
     async fn process_tunnel(&mut self, tunnel: &mut (dyn Connection + Unpin)) -> Result<()>;
 }

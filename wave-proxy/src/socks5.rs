@@ -47,7 +47,7 @@ impl Proxy for Socks5 {
             target,
         };
 
-        if let Err(e) = ctx.upstream_session(&info).await {
+        if let Err(e) = ctx.proxy_info_filter(&info).await {
             let reply = new_reply(&ReplyError::ConnectionRefused, ctx.local_addr());
             reply_to(&mut socks5, reply).await?;
             return Err(e);
