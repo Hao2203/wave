@@ -31,28 +31,28 @@ impl Proxy for Socks5 {
         incoming: &mut (dyn Connection + Unpin),
     ) -> Result<()> {
         let mut config = Config::<AcceptAuthentication>::default();
-        config.set_allow_no_auth(true);
-        // config.set_execute_command(false);
+        config.set_execute_command(false);
         let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))
             .upgrade_to_socks5()
             .await
             .context("failed to upgrade to socks5")?;
+        // println!("socks5 upgrade success");
         let target: Target = socks5
             .target_addr()
             .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
             .into();
+
         let info = ProxyInfo {
             proxy_mode: "socks5".into(),
             target,
         };
-        let mut upstream = match ctx.upstream_session(&info).await {
-            Ok(res) => res,
-            Err(e) => {
-                let reply = new_reply(&ReplyError::ConnectionRefused, ctx.local_addr());
-                reply_to(&mut socks5, reply).await?;
-                return Err(e);
-            }
+
+        if let Err(e) = ctx.upstream_session(&info).await {
+            let reply = new_reply(&ReplyError::ConnectionRefused, ctx.local_addr());
+            reply_to(&mut socks5, reply).await?;
+            return Err(e);
         };
+
         let command = socks5.cmd();
         match command {
             None => Err(Error::new(
@@ -63,9 +63,7 @@ impl Proxy for Socks5 {
                 Socks5Command::TCPConnect => {
                     reply_success(&mut socks5, ctx.local_addr()).await?;
 
-                    tokio::io::copy_bidirectional(&mut socks5, &mut upstream.upstream)
-                        .await
-                        .context("failed to transfer data between upstream and downstream")?;
+                    ctx.process_tunnel(&mut socks5).await?;
 
                     Ok(())
                 }

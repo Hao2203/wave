@@ -9,8 +9,8 @@ use util::IoPreHandler;
 
 pub mod error;
 pub mod socks5;
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 pub mod util;
 
 pub trait Connection: AsyncRead + AsyncWrite + Send {}
@@ -22,7 +22,10 @@ pub type BoxConnection = Pin<Box<dyn Connection>>;
 #[async_trait::async_trait]
 pub trait ProxyCtx: Send {
     fn local_addr(&self) -> SocketAddr;
-    async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<UpstreamSession>;
+
+    async fn upstream_session(&mut self, info: &ProxyInfo) -> Result<()>;
+
+    async fn process_tunnel(&mut self, tunnel: &mut (dyn Connection + Unpin)) -> Result<()>;
 }
 
 #[async_trait::async_trait]
