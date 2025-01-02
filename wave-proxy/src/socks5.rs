@@ -79,12 +79,12 @@ impl Proxy for Socks5 {
     }
 }
 
-async fn reply_success(io: &mut (dyn Connection + Unpin), addr: SocketAddr) -> Result<()> {
+async fn reply_success(io: &mut (impl Connection + Unpin), addr: SocketAddr) -> Result<()> {
     let reply = new_reply(&ReplyError::Succeeded, addr);
     reply_to(io, reply).await
 }
 
-async fn reply_to(io: &mut (dyn Connection + Unpin), reply: impl AsRef<[u8]>) -> Result<()> {
+async fn reply_to(io: &mut (impl Connection + Unpin), reply: impl AsRef<[u8]>) -> Result<()> {
     io.write_all(reply.as_ref())
         .await
         .context("failed to write reply")
