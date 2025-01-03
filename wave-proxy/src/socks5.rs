@@ -1,38 +1,30 @@
-#![allow(unused_imports)]
+// #![allow(unused_imports)]
 use crate::{
-    error::Context, Connection, Error, ErrorKind, Proxy, ProxyCtx, ProxyInfo, Result, Target,
+    error::Context, Connection, Error, ErrorKind, Incoming, Proxy, ProxyBuilder, ProxyInfo, Result,
+    Target,
 };
 use fast_socks5::{
     consts,
-    server::{AcceptAuthentication, Config, Socks5Server, Socks5Socket},
+    server::{AcceptAuthentication, Config, Socks5Socket},
     util::target_addr::TargetAddr,
     ReplyError, Socks5Command, SocksError,
 };
-use futures_lite::{
-    stream::{self, Boxed},
-    StreamExt,
-};
-use std::{
-    net::SocketAddr,
-    pin::{pin, Pin},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::io::AsyncWriteExt;
 
 pub struct Socks5 {}
 
-#[async_trait::async_trait]
-impl Proxy for Socks5 {
-    const ROUTE_SIZE: usize = 20;
-
-    async fn proxy_incoming(
+impl ProxyBuilder for Socks5 {
+    async fn build(
         &self,
-        ctx: &mut dyn ProxyCtx,
-        incoming: &mut (dyn Connection + Unpin),
-    ) -> Result<()> {
+        Incoming {
+            incoming,
+            local_addr,
+        }: Incoming<'_>,
+    ) -> Result<impl Proxy> {
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
-        let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))
+        let socks5 = Socks5Socket::new(incoming, Arc::new(config))
             .upgrade_to_socks5()
             .await
             .context("failed to upgrade to socks5")?;
@@ -46,14 +38,34 @@ impl Proxy for Socks5 {
             proxy_mode: "socks5".into(),
             target,
         };
+        Ok(Socks5Proxy {
+            conn: socks5,
+            info,
+            local_addr,
+        })
+    }
+}
 
-        if let Err(e) = ctx.proxy_info_filter(&info).await {
-            let reply = new_reply(&ReplyError::ConnectionRefused, ctx.local_addr());
-            reply_to(&mut socks5, reply).await?;
-            return Err(e);
-        };
+pub struct Socks5Proxy<T>
+where
+    T: Connection + Unpin,
+{
+    conn: Socks5Socket<T, AcceptAuthentication>,
+    info: ProxyInfo,
+    local_addr: SocketAddr,
+}
 
-        let command = socks5.cmd();
+#[async_trait::async_trait]
+impl<T> Proxy for Socks5Proxy<T>
+where
+    T: Connection + Unpin,
+{
+    fn proxy_info(&self) -> &ProxyInfo {
+        &self.info
+    }
+
+    async fn tunnel(&mut self) -> Result<&mut (dyn Connection + Unpin)> {
+        let command = self.conn.cmd();
         match command {
             None => Err(Error::new(
                 ErrorKind::UnSupportedProxyProtocol,
@@ -61,11 +73,9 @@ impl Proxy for Socks5 {
             )),
             Some(cmd) => match cmd {
                 Socks5Command::TCPConnect => {
-                    reply_success(&mut socks5, ctx.local_addr()).await?;
+                    reply_success(&mut self.conn, self.local_addr).await?;
 
-                    ctx.process_tunnel(&mut socks5).await?;
-
-                    Ok(())
+                    Ok(&mut self.conn)
                 }
                 Socks5Command::UDPAssociate => {
                     todo!()

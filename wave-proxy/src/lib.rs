@@ -1,11 +1,6 @@
 pub use crate::error::{Error, ErrorKind, Result};
-use std::{
-    borrow::Cow,
-    net::SocketAddr,
-    pin::{pin, Pin},
-};
+use std::{borrow::Cow, net::SocketAddr};
 use tokio::io::{AsyncRead, AsyncWrite};
-use util::IoPreHandler;
 
 pub mod error;
 pub mod socks5;
@@ -17,64 +12,34 @@ pub trait Connection: AsyncRead + AsyncWrite + Send {}
 
 impl<T: AsyncRead + AsyncWrite + Send> Connection for T {}
 
-pub type BoxConnection = Pin<Box<dyn Connection>>;
+pub struct Incoming<'a> {
+    pub incoming: &'a mut (dyn Connection + Unpin + 'a),
+    pub local_addr: SocketAddr,
+}
 
-#[async_trait::async_trait]
-pub trait ProxyCtx: Send {
-    fn local_addr(&self) -> SocketAddr;
-
-    async fn proxy_info_filter(&mut self, info: &ProxyInfo) -> Result<()>;
-
-    async fn process_tunnel(&mut self, tunnel: &mut (dyn Connection + Unpin)) -> Result<()>;
+pub trait ProxyBuilder {
+    fn build(
+        &self,
+        incoming: Incoming<'_>,
+    ) -> impl std::future::Future<Output = Result<impl Proxy>> + Send;
 }
 
 #[async_trait::async_trait]
-pub trait Proxy: Sync {
-    const ROUTE_SIZE: usize;
+pub trait Proxy: Send {
+    fn proxy_info(&self) -> &ProxyInfo;
 
-    async fn proxy_incoming(
-        &self,
-        ctx: &mut dyn ProxyCtx,
-        incoming: &mut (dyn Connection + Unpin),
-    ) -> Result<()>;
+    async fn tunnel(&mut self) -> Result<&mut (dyn Connection + Unpin)>;
 }
 
-pub struct ProxyChain<T1, T2>(T1, T2);
-
 #[async_trait::async_trait]
-impl<T1, T2> Proxy for ProxyChain<T1, T2>
-where
-    T1: Proxy,
-    T2: Proxy,
-{
-    const ROUTE_SIZE: usize = if T1::ROUTE_SIZE > T2::ROUTE_SIZE {
-        T1::ROUTE_SIZE
-    } else {
-        T2::ROUTE_SIZE
-    };
-
-    async fn proxy_incoming(
-        &self,
-        ctx: &mut dyn ProxyCtx,
-        incoming: &mut (dyn Connection + Unpin),
-    ) -> Result<()> {
-        let res = self.0.proxy_incoming(ctx, incoming).await;
-        if let Err(e) = &res {
-            if e.kind() == ErrorKind::UnSupportedProxyProtocol {
-                return self.1.proxy_incoming(ctx, incoming).await;
-            }
-        }
-        res
+impl Proxy for Box<dyn Proxy> {
+    fn proxy_info(&self) -> &ProxyInfo {
+        self.as_ref().proxy_info()
     }
-}
 
-pub struct ClientSession {
-    pub downstream: BoxConnection,
-    pub source_addr: SocketAddr,
-}
-
-pub struct UpstreamSession {
-    pub upstream: BoxConnection,
+    async fn tunnel(&mut self) -> Result<&mut (dyn Connection + Unpin)> {
+        self.as_mut().tunnel().await
+    }
 }
 
 pub struct ProxyInfo {
@@ -96,20 +61,44 @@ impl<T> Builder<T> {
     pub fn new(proxy: T) -> Self {
         Self { proxy }
     }
-
-    pub fn add_proxy<T2>(self, proxy: T2) -> Builder<ProxyChain<T, T2>> {
-        let proxy = ProxyChain(self.proxy, proxy);
-        Builder { proxy }
-    }
 }
 
 impl<T> Builder<T>
 where
-    T: Proxy,
+    T: ProxyBuilder,
 {
-    pub async fn serve(&self, mut ctx: impl ProxyCtx, io: impl Connection) -> Result<()> {
-        let mut io = IoPreHandler::new(io, T::ROUTE_SIZE);
-        let mut incoming = pin!(io);
-        self.proxy.proxy_incoming(&mut ctx, &mut incoming).await
+    pub async fn serve<'a>(
+        &'a self,
+        io: &'a mut (impl Connection + Unpin),
+        local_addr: SocketAddr,
+    ) -> Result<ProxyHandler<'a>> {
+        let incoming = Incoming {
+            incoming: io,
+            local_addr,
+        };
+        let proxy = self
+            .proxy
+            .build(incoming)
+            .await
+            .map(|proxy| Box::new(proxy) as Box<dyn Proxy>)?;
+        Ok(ProxyHandler { proxy })
+    }
+}
+
+pub struct ProxyHandler<'a> {
+    proxy: Box<dyn Proxy + 'a>,
+}
+
+impl<'a> ProxyHandler<'a> {
+    pub async fn tunnel(&mut self) -> Result<&mut (dyn Connection + Unpin)> {
+        self.proxy.as_mut().tunnel().await
+    }
+
+    pub fn info(&self) -> &ProxyInfo {
+        self.proxy.as_ref().proxy_info()
+    }
+
+    pub async fn direct(&mut self) -> Result<()> {
+        todo!()
     }
 }
