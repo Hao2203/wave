@@ -13,11 +13,6 @@ pub trait Connection: AsyncRead + AsyncWrite + Send {}
 
 impl<T: AsyncRead + AsyncWrite + Send> Connection for T {}
 
-pub struct Incoming<'a> {
-    pub incoming: &'a mut (dyn Connection + Unpin + 'a),
-    pub local_addr: SocketAddr,
-}
-
 pub type BoxConn<'a> = Pin<Box<dyn Connection + 'a>>;
 
 #[async_trait::async_trait]
@@ -42,9 +37,28 @@ pub enum Target {
     Domain(String, u16),
 }
 
+#[derive(Default)]
 pub struct MixedProxy {
     proxies: Vec<Arc<dyn Proxy + Send + Sync>>,
     first_packet_size: usize,
+}
+
+impl MixedProxy {
+    pub fn new() -> Self {
+        Self {
+            proxies: Vec::new(),
+            first_packet_size: 0,
+        }
+    }
+
+    pub fn add_proxy(&mut self, proxy: Arc<dyn Proxy + Send + Sync>) {
+        self.first_packet_size = self.first_packet_size.max(proxy.first_packet_size());
+        self.proxies.push(proxy);
+    }
+
+    pub fn first_packet_size(&self) -> usize {
+        self.first_packet_size
+    }
 }
 
 #[async_trait::async_trait]
