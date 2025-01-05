@@ -7,7 +7,7 @@ use fast_socks5::{
     util::target_addr::TargetAddr,
     ReplyError, Socks5Command, SocksError,
 };
-use std::{net::SocketAddr, pin::Pin, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::io::AsyncWriteExt;
 
 pub struct Socks5 {}
@@ -16,9 +16,9 @@ pub struct Socks5 {}
 impl Proxy for Socks5 {
     async fn serve<'a>(
         &self,
-        incoming: &'a mut (dyn Connection + Unpin + 'a),
+        incoming: BoxConn<'a>,
         local_addr: SocketAddr,
-    ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)> {
+    ) -> Result<(ProxyInfo, BoxConn<'a>)> {
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
         let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))

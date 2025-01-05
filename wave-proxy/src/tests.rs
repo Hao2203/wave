@@ -13,8 +13,8 @@ async fn test() {
 
     let server_task = tokio::spawn(async move {
         let listener = TcpListener::bind("127.0.0.1:1234").await.unwrap();
-        let (mut stream, addr) = listener.accept().await.unwrap();
-        let (info, mut tunnel) = Socks5 {}.serve(&mut stream, addr).await.unwrap();
+        let (stream, addr) = listener.accept().await.unwrap();
+        let (info, mut tunnel) = Socks5 {}.serve(Box::pin(stream), addr).await.unwrap();
         assert_eq!(info.target, Target::Ip("127.0.0.1:80".parse().unwrap()));
 
         let data = test_data();

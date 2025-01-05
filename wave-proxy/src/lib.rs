@@ -1,6 +1,7 @@
 pub use crate::error::{Error, ErrorKind, Result};
 use std::{borrow::Cow, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::io::{AsyncRead, AsyncWrite};
+use util::Cloneable;
 
 pub mod error;
 pub mod socks5;
@@ -17,13 +18,15 @@ pub struct Incoming<'a> {
     pub local_addr: SocketAddr,
 }
 
+pub type BoxConn<'a> = Pin<Box<dyn Connection + 'a>>;
+
 #[async_trait::async_trait]
 pub trait Proxy {
     async fn serve<'a>(
         &self,
-        conn: &'a mut (dyn Connection + Unpin + 'a),
+        conn: BoxConn<'a>,
         local_addr: SocketAddr,
-    ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)>;
+    ) -> Result<(ProxyInfo, BoxConn<'a>)>;
 
     fn first_packet_size(&self) -> usize;
 }
@@ -41,19 +44,39 @@ pub enum Target {
 
 pub struct MixedProxy {
     proxies: Vec<Arc<dyn Proxy + Send + Sync>>,
+    first_packet_size: usize,
 }
 
 #[async_trait::async_trait]
 impl Proxy for MixedProxy {
     async fn serve<'a>(
         &self,
-        conn: &'a mut (dyn Connection + Unpin + 'a),
+        conn: BoxConn<'a>,
         local_addr: SocketAddr,
-    ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)> {
-        todo!()
+    ) -> Result<(ProxyInfo, BoxConn<'a>)> {
+        let conn = util::BufConnManager::new(conn, self.first_packet_size);
+        let conn = Cloneable::new(conn);
+
+        for proxy in self.proxies.iter() {
+            conn.value.lock().unwrap().reset();
+
+            match proxy.serve(Box::pin(conn.clone()), local_addr).await {
+                Err(e) if e.kind() == ErrorKind::UnSupportedProxyProtocol => {
+                    continue;
+                }
+                res => {
+                    return res;
+                }
+            }
+        }
+
+        Err(Error::new(
+            ErrorKind::UnSupportedProxyProtocol,
+            "Unsupported proxy protocol in mixed proxy",
+        ))
     }
 
     fn first_packet_size(&self) -> usize {
-        todo!()
+        self.first_packet_size
     }
 }

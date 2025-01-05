@@ -3,19 +3,20 @@ use futures_lite::ready;
 use std::{
     future::Future,
     io::{self, Cursor},
-    pin::pin,
+    pin::{pin, Pin},
+    sync::{Arc, Mutex},
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 /// A wrapper around an `AsyncRead` that reads from a buffer first.
 #[pin_project::pin_project]
-pub struct IoPreHandler<T> {
+pub struct BufConnManager<T> {
     buf: Cursor<BytesMut>,
     #[pin]
     io: T,
 }
 
-impl<T> IoPreHandler<T> {
+impl<T> BufConnManager<T> {
     /// Create a new `IoReader` with an internal buffer of `buf_length` bytes.
     ///
     /// The internal buffer is filled with data from the underlying `io` on
@@ -27,7 +28,7 @@ impl<T> IoPreHandler<T> {
     /// attempting to fill the buffer, the `IoReader` will return the same error
     /// or EOF on the next call to `poll_read`.
     pub fn new(io: T, buf_length: usize) -> Self {
-        IoPreHandler {
+        BufConnManager {
             buf: Cursor::new(BytesMut::with_capacity(buf_length)),
             io,
         }
@@ -51,7 +52,7 @@ impl<T> IoPreHandler<T> {
     }
 }
 
-impl<T> AsyncRead for IoPreHandler<T>
+impl<T> AsyncRead for BufConnManager<T>
 where
     T: AsyncRead,
 {
@@ -71,7 +72,7 @@ where
     }
 }
 
-impl<T> AsyncWrite for IoPreHandler<T>
+impl<T> AsyncWrite for BufConnManager<T>
 where
     T: AsyncWrite,
 {
@@ -101,6 +102,75 @@ where
     }
 }
 
+#[derive(Debug)]
+pub struct Cloneable<T> {
+    pub value: Arc<Mutex<T>>,
+}
+
+impl<T> Clone for Cloneable<T> {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
+}
+
+impl<T> Cloneable<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value: Arc::new(Mutex::new(value)),
+        }
+    }
+}
+
+impl<T> AsyncRead for Cloneable<T>
+where
+    T: AsyncRead + std::marker::Unpin,
+{
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let mut value = self.value.lock().unwrap();
+        let value = Pin::new(&mut *value);
+        value.poll_read(cx, buf)
+    }
+}
+
+impl<T> AsyncWrite for Cloneable<T>
+where
+    T: AsyncWrite + std::marker::Unpin,
+{
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        let mut value = self.value.lock().unwrap();
+        let value = Pin::new(&mut *value);
+        value.poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let mut value = self.value.lock().unwrap();
+        let value = Pin::new(&mut *value);
+        value.poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let mut value = self.value.lock().unwrap();
+        let value = Pin::new(&mut *value);
+        value.poll_shutdown(cx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,7 +180,7 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         const BUF_LENGTH: usize = 3;
         let io = Cursor::new(&data);
-        let mut reader = IoPreHandler::new(io, BUF_LENGTH);
+        let mut reader = BufConnManager::new(io, BUF_LENGTH);
 
         let mut buf = [0u8; BUF_LENGTH];
         reader.read_buf(&mut buf.as_mut()).await.unwrap();
