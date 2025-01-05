@@ -18,25 +18,14 @@ pub struct Incoming<'a> {
 }
 
 #[async_trait::async_trait]
-pub trait ProxyService {
+pub trait Proxy {
     async fn serve<'a>(
         &self,
-        conn: Incoming<'a>,
+        conn: &'a mut (dyn Connection + Unpin + 'a),
+        local_addr: SocketAddr,
     ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)>;
-}
 
-#[async_trait::async_trait]
-impl<T> ProxyService for Arc<T>
-where
-    T: ProxyService + ?Sized + Sync + Send,
-{
-    async fn serve<'a>(
-        &self,
-        conn: Incoming<'a>,
-    ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)> {
-        let this = self.clone();
-        this.serve(conn).await
-    }
+    fn first_packet_size(&self) -> usize;
 }
 
 pub struct ProxyInfo {
@@ -48,4 +37,23 @@ pub struct ProxyInfo {
 pub enum Target {
     Ip(SocketAddr),
     Domain(String, u16),
+}
+
+pub struct MixedProxy {
+    proxies: Vec<Arc<dyn Proxy + Send + Sync>>,
+}
+
+#[async_trait::async_trait]
+impl Proxy for MixedProxy {
+    async fn serve<'a>(
+        &self,
+        conn: &'a mut (dyn Connection + Unpin + 'a),
+        local_addr: SocketAddr,
+    ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)> {
+        todo!()
+    }
+
+    fn first_packet_size(&self) -> usize {
+        todo!()
+    }
 }

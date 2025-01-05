@@ -13,17 +13,14 @@ use tokio::io::AsyncWriteExt;
 pub struct Socks5 {}
 
 #[async_trait::async_trait]
-impl ProxyService for Socks5 {
+impl Proxy for Socks5 {
     async fn serve<'a>(
         &self,
-        incoming: Incoming<'a>,
+        incoming: &'a mut (dyn Connection + Unpin + 'a),
+        local_addr: SocketAddr,
     ) -> Result<(ProxyInfo, Pin<Box<dyn Connection + 'a>>)> {
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
-        let Incoming {
-            incoming,
-            local_addr,
-        } = incoming;
         let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))
             .upgrade_to_socks5()
             .await
@@ -60,6 +57,10 @@ impl ProxyService for Socks5 {
         }?;
 
         Ok((info, Box::pin(tunnel)))
+    }
+
+    fn first_packet_size(&self) -> usize {
+        256
     }
 }
 
