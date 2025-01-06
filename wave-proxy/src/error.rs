@@ -1,62 +1,48 @@
 #![allow(unused)]
-use derive_more::derive::{Display, From};
+use derive_more::derive::{Display, Error, From};
 use std::borrow::Cow;
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[derive(Debug, Display)]
-#[display("Kind: {kind}, Message: {message}, Source: {source:?}")]
+#[display("Inner: {kind}, Message: {message}")]
 pub struct Error {
-    kind: ErrorKind,
+    kind: ErrorInner,
     message: Cow<'static, str>,
-    source: Option<anyhow::Error>,
 }
 
 impl Error {
-    pub fn new(kind: impl Into<ErrorKind>, message: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(kind: impl Into<ErrorInner>, message: impl Into<Cow<'static, str>>) -> Self {
         Self {
             kind: kind.into(),
             message: message.into(),
-            source: None,
         }
-    }
-
-    pub fn set_source(mut self, source: impl Into<anyhow::Error>) -> Self {
-        self.source = Some(source.into());
-        self
-    }
-
-    pub fn kind(&self) -> ErrorKind {
-        self.kind
     }
 }
 
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|e| e.as_ref())
+        self.kind.source()
     }
 }
 
-#[derive(Debug, Display, From, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Display, From, Error)]
 #[non_exhaustive]
-pub enum ErrorKind {
+pub enum ErrorInner {
     #[display("Unexpected error")]
     Unexpected,
     #[display("IO error: {}", _0)]
     #[from]
-    IoError(std::io::ErrorKind),
+    IoError(std::io::Error),
     #[display("Get target failed")]
     GetTargetFailed,
     #[display("Proxy failed")]
     ProxyFailed,
     #[display("Unsupported proxy protocol")]
     UnSupportedProxyProtocol,
-}
-
-impl From<&std::io::Error> for ErrorKind {
-    fn from(value: &std::io::Error) -> Self {
-        ErrorKind::IoError(value.kind())
-    }
+    #[display("Other error: {}", _0)]
+    #[from]
+    Other(anyhow::Error),
 }
 
 pub(crate) trait Context {
@@ -66,11 +52,10 @@ pub(crate) trait Context {
 
 impl<T, E> Context for Result<T, E>
 where
-    E: Into<anyhow::Error>,
-    for<'a> &'a E: Into<ErrorKind>,
+    E: Into<ErrorInner>,
 {
     type Item = T;
     fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item> {
-        self.map_err(|e| Error::new(&e, message).set_source(e))
+        self.map_err(|e| Error::new(e, message))
     }
 }

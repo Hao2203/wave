@@ -13,12 +13,13 @@ use tokio::io::AsyncWriteExt;
 pub struct Socks5 {}
 
 #[async_trait::async_trait]
-impl Proxy for Socks5 {
-    async fn serve<'a>(
-        &self,
-        incoming: BoxConn<'a>,
-        local_addr: SocketAddr,
-    ) -> Result<(ProxyInfo, BoxConn<'a>)> {
+impl<T: Connection + Unpin> Proxy<T> for Socks5 {
+    async fn serve<'a>(&self, incoming: Incoming<T>) -> Result<ProxyStatus<'a, T>>
+    where
+        T: 'a,
+    {
+        let local_addr = incoming.local_addr;
+
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
         let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))
@@ -29,38 +30,30 @@ impl Proxy for Socks5 {
 
         let target: Target = socks5
             .target_addr()
-            .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
+            .ok_or(Error::new(ErrorInner::GetTargetFailed, "get target failed"))?
             .into();
-        let info = ProxyInfo {
-            proxy_mode: "socks5".into(),
-            target,
-        };
-        let tunnel = match socks5.cmd() {
-            None => Err(Error::new(
-                ErrorKind::UnSupportedProxyProtocol,
-                "command is none",
-            )),
+        match socks5.cmd() {
+            None => Ok(ProxyStatus::Continue(socks5.into_inner().conn)),
             Some(cmd) => match cmd {
                 Socks5Command::TCPConnect => {
                     reply_success(&mut socks5, local_addr).await?;
 
-                    Ok(Box::pin(socks5))
+                    let info = ProxyInfo {
+                        proxy_mode: "socks5".into(),
+                        target,
+                        tunnel: Box::pin(socks5),
+                    };
+                    Ok(ProxyStatus::Success(info))
                 }
                 Socks5Command::UDPAssociate => {
                     todo!()
                 }
                 _ => Err(Error::new(
-                    ErrorKind::UnSupportedProxyProtocol,
+                    ErrorInner::UnSupportedProxyProtocol,
                     "parse command failed",
                 )),
             },
-        }?;
-
-        Ok((info, Box::pin(tunnel)))
-    }
-
-    fn first_packet_size(&self) -> usize {
-        256
+        }
     }
 }
 
@@ -111,8 +104,8 @@ impl From<&TargetAddr> for crate::Target {
     }
 }
 
-impl From<&SocksError> for ErrorKind {
-    fn from(value: &SocksError) -> Self {
+impl From<SocksError> for ErrorInner {
+    fn from(value: SocksError) -> Self {
         type E = SocksError;
         match value {
             E::Io(e) => e.into(),
@@ -120,8 +113,8 @@ impl From<&SocksError> for ErrorKind {
                 expected: _,
                 found: _,
             }
-            | E::UnsupportedSocksVersion(_) => ErrorKind::UnSupportedProxyProtocol,
-            _ => ErrorKind::Unexpected,
+            | E::UnsupportedSocksVersion(_) => ErrorInner::UnSupportedProxyProtocol,
+            _ => ErrorInner::Unexpected,
         }
     }
 }
