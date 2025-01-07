@@ -320,20 +320,20 @@ mod test {
         pub struct TestApp;
         impl ProxyApp for TestApp {
             type Ctx = ();
-            type Tunnel = Cursor<Vec<u8>>;
+            type Upstream = Cursor<Vec<u8>>;
             fn new_ctx(&self) -> Self::Ctx {}
             async fn upstream(
                 &self,
                 _ctx: &mut Self::Ctx,
                 target: &Target,
-            ) -> Result<Option<Self::Tunnel>> {
+            ) -> Result<Option<Self::Upstream>> {
                 assert_eq!(*target, Target::Domain("www.example.com".into(), 80));
                 Ok(Some(Cursor::new(vec![])))
             }
             async fn after_forward(
                 &self,
                 _ctx: &mut Self::Ctx,
-                tunnel: Self::Tunnel,
+                tunnel: Self::Upstream,
             ) -> Result<()> {
                 assert_eq!(tunnel.into_inner(), http_header_data());
                 Ok(())
@@ -394,22 +394,15 @@ mod test {
         pub struct TestApp;
         impl ProxyApp for TestApp {
             type Ctx = ();
-            type Tunnel = Cursor<Vec<u8>>;
+            type Upstream = Cursor<Vec<u8>>;
             fn new_ctx(&self) -> Self::Ctx {}
             async fn upstream(
                 &self,
                 _ctx: &mut Self::Ctx,
                 _target: &Target,
-            ) -> Result<Option<Self::Tunnel>> {
+            ) -> Result<Option<Self::Upstream>> {
                 // println!("target: {:?}", _target);
                 Ok(None)
-            }
-            async fn after_forward(
-                &self,
-                _ctx: &mut Self::Ctx,
-                _tunnel: Self::Tunnel,
-            ) -> Result<()> {
-                unreachable!()
             }
         }
 

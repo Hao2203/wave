@@ -25,20 +25,22 @@ impl<T: AsyncRead + AsyncWrite + Send> Connection for T {}
 
 pub trait ProxyApp {
     type Ctx: Send + Sync;
-    type Tunnel: Connection + Sync + Unpin;
+    type Upstream: Connection + Sync + Unpin;
     fn new_ctx(&self) -> Self::Ctx;
 
     fn upstream(
         &self,
         ctx: &mut Self::Ctx,
         target: &Target,
-    ) -> impl Future<Output = Result<Option<Self::Tunnel>>> + Send;
+    ) -> impl Future<Output = Result<Option<Self::Upstream>>> + Send;
 
     fn after_forward(
         &self,
-        ctx: &mut Self::Ctx,
-        tunnel: Self::Tunnel,
-    ) -> impl Future<Output = Result<()>> + Send;
+        _ctx: &mut Self::Ctx,
+        _tunnel: Self::Upstream,
+    ) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
 }
 
 impl<T> ProxyApp for Arc<T>
@@ -46,7 +48,7 @@ where
     T: ProxyApp,
 {
     type Ctx = T::Ctx;
-    type Tunnel = T::Tunnel;
+    type Upstream = T::Upstream;
 
     fn new_ctx(&self) -> Self::Ctx {
         self.as_ref().new_ctx()
@@ -56,14 +58,14 @@ where
         &self,
         ctx: &mut Self::Ctx,
         target: &Target,
-    ) -> impl Future<Output = Result<Option<Self::Tunnel>>> + Send {
+    ) -> impl Future<Output = Result<Option<Self::Upstream>>> + Send {
         self.as_ref().upstream(ctx, target)
     }
 
     fn after_forward(
         &self,
         ctx: &mut Self::Ctx,
-        tunnel: Self::Tunnel,
+        tunnel: Self::Upstream,
     ) -> impl Future<Output = Result<()>> + Send {
         self.as_ref().after_forward(ctx, tunnel)
     }
