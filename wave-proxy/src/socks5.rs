@@ -19,6 +19,14 @@ pub struct Socks5 {
     timeout: Duration,
 }
 
+impl Default for Socks5 {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(5),
+        }
+    }
+}
+
 impl Socks5 {
     async fn tcp_transfer<T: Connection + Unpin>(
         &self,
@@ -153,13 +161,14 @@ impl Socks5 {
 }
 
 #[async_trait::async_trait]
-impl<T: ProxyApp + Send + 'static> ProxyService<T> for Socks5 {
-    async fn serve<'a>(&self, incoming: Incoming<'a>, app: T) -> Result<Option<Incoming<'a>>> {
+impl<T: ProxyApp + Sync + 'static> ProxyService<T> for Socks5 {
+    async fn serve<'a>(&self, app: &T, incoming: Incoming<'a>) -> Result<ProxyStatus<'a>> {
         let local_addr = incoming.local_addr;
         let mut ctx = app.new_ctx();
 
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
+        config.set_dns_resolve(false);
         let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))
             .upgrade_to_socks5()
             .await
@@ -170,8 +179,9 @@ impl<T: ProxyApp + Send + 'static> ProxyService<T> for Socks5 {
             .target_addr()
             .ok_or(Error::new(ErrorInner::GetTargetFailed, "get target failed"))?
             .into();
+
         match socks5.cmd() {
-            None => Ok(Some(socks5.into_inner())),
+            None => Ok(ProxyStatus::Continue(socks5.into_inner())),
             Some(cmd) => match cmd {
                 Socks5Command::TCPConnect => {
                     let tunnel = app.upstream(&mut ctx, &target).await?;
@@ -185,12 +195,12 @@ impl<T: ProxyApp + Send + 'static> ProxyService<T> for Socks5 {
                         self.tcp_transfer(&target, &mut socks5).await?;
                     }
 
-                    Ok(None)
+                    Ok(ProxyStatus::Success)
                 }
                 Socks5Command::UDPAssociate => {
                     self.execute_command_udp_assoc(&mut socks5, local_addr)
                         .await?;
-                    Ok(None)
+                    Ok(ProxyStatus::Success)
                 }
 
                 _ => Err(Error::new(

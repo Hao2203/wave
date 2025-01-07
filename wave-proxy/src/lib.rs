@@ -9,14 +9,15 @@ use std::{
     io::Cursor,
     net::SocketAddr,
     pin::{pin, Pin},
+    sync::Arc,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 pub mod error;
-// pub mod server;
+pub mod server;
 pub mod socks5;
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 
 pub trait Connection: AsyncRead + AsyncWrite + Send {}
 
@@ -40,9 +41,37 @@ pub trait ProxyApp {
     ) -> impl Future<Output = Result<()>> + Send;
 }
 
+impl<T> ProxyApp for Arc<T>
+where
+    T: ProxyApp,
+{
+    type Ctx = T::Ctx;
+    type Tunnel = T::Tunnel;
+
+    fn new_ctx(&self) -> Self::Ctx {
+        self.as_ref().new_ctx()
+    }
+
+    fn upstream(
+        &self,
+        ctx: &mut Self::Ctx,
+        target: &Target,
+    ) -> impl Future<Output = Result<Option<Self::Tunnel>>> + Send {
+        self.as_ref().upstream(ctx, target)
+    }
+
+    fn after_forward(
+        &self,
+        ctx: &mut Self::Ctx,
+        tunnel: Self::Tunnel,
+    ) -> impl Future<Output = Result<()>> + Send {
+        self.as_ref().after_forward(ctx, tunnel)
+    }
+}
+
 #[async_trait::async_trait]
 pub trait ProxyService<A: ProxyApp> {
-    async fn serve<'a>(&self, incoming: Incoming<'a>, app: A) -> Result<Option<Incoming<'a>>>;
+    async fn serve<'a>(&self, app: &A, incoming: Incoming<'a>) -> Result<ProxyStatus<'a>>;
 }
 
 pub type BoxConn<'a> = Pin<Box<dyn Connection + 'a>>;
@@ -94,9 +123,9 @@ impl AsyncWrite for Incoming<'_> {
     }
 }
 
-pub enum ProxyStatus<'a, T> {
-    Success(ProxyHandler<'a>),
-    Continue(T),
+pub enum ProxyStatus<'a> {
+    Success,
+    Continue(Incoming<'a>),
 }
 
 pub struct ProxyHandler<'a> {
