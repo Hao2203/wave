@@ -1,10 +1,11 @@
 pub use crate::{
     error::{Error, ErrorInner, Result},
-    server::{Builder, ProxyServer},
+    // server::{Builder, ProxyServer},
 };
 
 use std::{
     borrow::Cow,
+    future::Future,
     io::Cursor,
     net::SocketAddr,
     pin::{pin, Pin},
@@ -12,34 +13,47 @@ use std::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 pub mod error;
-pub mod server;
+// pub mod server;
 pub mod socks5;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 pub trait Connection: AsyncRead + AsyncWrite + Send {}
 
 impl<T: AsyncRead + AsyncWrite + Send> Connection for T {}
 
+pub trait ProxyApp {
+    type Ctx: Send + Sync;
+    type Tunnel: Connection + Sync + Unpin;
+    fn new_ctx(&self) -> Self::Ctx;
+
+    fn upstream(
+        &self,
+        ctx: &mut Self::Ctx,
+        target: &Target,
+    ) -> impl Future<Output = Result<Option<Self::Tunnel>>> + Send;
+
+    fn after_forward(
+        &self,
+        ctx: &mut Self::Ctx,
+        tunnel: Self::Tunnel,
+    ) -> impl Future<Output = Result<()>> + Send;
+}
+
 #[async_trait::async_trait]
-pub trait Proxy<T> {
-    async fn serve<'a>(&self, incoming: Incoming<T>) -> Result<ProxyStatus<'a, T>>
-    where
-        T: 'a;
+pub trait ProxyService<A: ProxyApp> {
+    async fn serve<'a>(&self, incoming: Incoming<'a>, app: A) -> Result<Option<Incoming<'a>>>;
 }
 
 pub type BoxConn<'a> = Pin<Box<dyn Connection + 'a>>;
 
-pub struct Incoming<T> {
+pub struct Incoming<'a> {
     io_buf: Cursor<bytes::Bytes>,
-    pub conn: T,
+    pub conn: &'a mut (dyn Connection + Unpin + 'a),
     pub local_addr: SocketAddr,
 }
 
-impl<T> AsyncRead for Incoming<T>
-where
-    T: AsyncRead + Unpin,
-{
+impl AsyncRead for Incoming<'_> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -55,10 +69,7 @@ where
     }
 }
 
-impl<T> AsyncWrite for Incoming<T>
-where
-    T: AsyncWrite + Unpin,
-{
+impl AsyncWrite for Incoming<'_> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

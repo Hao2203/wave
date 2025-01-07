@@ -2,23 +2,161 @@
 use super::*;
 use error::Context;
 use fast_socks5::{
-    consts,
+    consts::{self},
+    parse_udp_request,
     server::{AcceptAuthentication, Config, Socks5Socket},
     util::target_addr::TargetAddr,
     ReplyError, Socks5Command, SocksError,
 };
-use std::{net::SocketAddr, sync::Arc};
-use tokio::io::AsyncWriteExt;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{io::AsyncWriteExt, net::UdpSocket, try_join};
 
-pub struct Socks5 {}
+pub struct Socks5 {
+    timeout: Duration,
+}
+
+impl Socks5 {
+    async fn tcp_transfer<T: Connection + Unpin>(
+        &self,
+        target: &Target,
+        mut inbound: T,
+    ) -> Result<()> {
+        // TCP connect with timeout, to avoid memory leak for connection that takes forever
+        let mut outbound = match target {
+            Target::Domain(url, port) => {
+                tokio::time::timeout(
+                    self.timeout,
+                    tokio::net::TcpStream::connect((url.as_str(), *port)),
+                )
+                .await
+            }
+            Target::Ip(addr) => {
+                tokio::time::timeout(self.timeout, tokio::net::TcpStream::connect(addr)).await
+            }
+        }
+        .unwrap()
+        .context("Can't connect to remote destination")?;
+
+        inbound
+            .write(&new_reply(
+                &ReplyError::Succeeded,
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
+            ))
+            .await
+            .context("Can't write successful reply")?;
+
+        inbound.flush().await.context("Can't flush the reply!")?;
+
+        self.copy_bidirectional(&mut outbound, &mut inbound).await?;
+
+        Ok(())
+    }
+
+    async fn copy_bidirectional<A, B>(&self, mut a: A, mut b: B) -> Result<()>
+    where
+        A: AsyncRead + AsyncWrite + Unpin,
+        B: AsyncRead + AsyncWrite + Unpin,
+    {
+        tokio::io::copy_bidirectional(&mut a, &mut b)
+            .await
+            .context("Can't copy the connection!")?;
+        Ok(())
+    }
+
+    async fn execute_command_udp_assoc<T: Connection + Unpin>(
+        &self,
+        mut inbound: T,
+        local_addr: SocketAddr,
+    ) -> Result<()> {
+        // Listen with UDP6 socket, so the client can connect to it with either
+        // IPv4 or IPv6.
+        let peer_sock = UdpSocket::bind("[::]:0")
+            .await
+            .context("Can't bind UDP socket")?;
+
+        // Respect the pre-populated reply IP address.
+        inbound
+            .write(&new_reply(&ReplyError::Succeeded, local_addr))
+            .await
+            .context("Can't write successful reply")?;
+
+        self.transfer_udp(peer_sock).await?;
+
+        Ok(())
+    }
+
+    async fn handle_udp_request(&self, inbound: &UdpSocket, outbound: &UdpSocket) -> Result<()> {
+        let mut buf = vec![0u8; 0x10000];
+        loop {
+            let (size, client_addr) = inbound.recv_from(&mut buf).await.unwrap();
+            inbound.connect(client_addr).await.unwrap();
+
+            let (frag, target_addr, data) = parse_udp_request(&buf[..size]).await.unwrap();
+
+            if frag != 0 {
+                // debug!("Discard UDP frag packets sliently.");
+                return Ok(());
+            }
+
+            // debug!("Server forward to packet to {}", target_addr);
+            let mut target_addr = target_addr
+                .resolve_dns()
+                .await
+                .unwrap()
+                .to_socket_addrs()
+                .unwrap()
+                .next()
+                .unwrap();
+
+            target_addr.set_ip(match target_addr.ip() {
+                std::net::IpAddr::V4(v4) => std::net::IpAddr::V6(v4.to_ipv6_mapped()),
+                v6 @ std::net::IpAddr::V6(_) => v6,
+            });
+
+            outbound
+                .send_to(data, target_addr)
+                .await
+                .context("Can't send packet")?;
+        }
+    }
+
+    async fn handle_udp_response(&self, inbound: &UdpSocket, outbound: &UdpSocket) -> Result<()> {
+        let mut buf = vec![0u8; 0x10000];
+        loop {
+            let (size, remote_addr) = outbound.recv_from(&mut buf).await.unwrap();
+            // debug!("Recieve packet from {}", remote_addr);
+
+            let mut data = fast_socks5::new_udp_header(remote_addr).unwrap();
+            data.extend_from_slice(&buf[..size]);
+            inbound.send(&data).await.unwrap();
+        }
+    }
+
+    async fn transfer_udp(&self, inbound: UdpSocket) -> Result<()> {
+        let outbound = UdpSocket::bind("[::]:0")
+            .await
+            .context("Can't bind UDP socket")?;
+
+        let req_fut = self.handle_udp_request(&inbound, &outbound);
+        let res_fut = self.handle_udp_response(&inbound, &outbound);
+        match try_join!(req_fut, res_fut) {
+            Ok(_) => {}
+            Err(error) => return Err(error),
+        }
+
+        Ok(())
+    }
+}
 
 #[async_trait::async_trait]
-impl<T: Connection + Unpin> Proxy<T> for Socks5 {
-    async fn serve<'a>(&self, incoming: Incoming<T>) -> Result<ProxyStatus<'a, T>>
-    where
-        T: 'a,
-    {
+impl<T: ProxyApp + Send + 'static> ProxyService<T> for Socks5 {
+    async fn serve<'a>(&self, incoming: Incoming<'a>, app: T) -> Result<Option<Incoming<'a>>> {
         let local_addr = incoming.local_addr;
+        let mut ctx = app.new_ctx();
 
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
@@ -33,21 +171,28 @@ impl<T: Connection + Unpin> Proxy<T> for Socks5 {
             .ok_or(Error::new(ErrorInner::GetTargetFailed, "get target failed"))?
             .into();
         match socks5.cmd() {
-            None => Ok(ProxyStatus::Continue(socks5.into_inner().conn)),
+            None => Ok(Some(socks5.into_inner())),
             Some(cmd) => match cmd {
                 Socks5Command::TCPConnect => {
-                    reply_success(&mut socks5, local_addr).await?;
+                    let tunnel = app.upstream(&mut ctx, &target).await?;
 
-                    let info = ProxyHandler {
-                        proxy_mode: "socks5".into(),
-                        target,
-                        tunnel: Box::pin(socks5),
-                    };
-                    Ok(ProxyStatus::Success(info))
+                    reply_success(&mut socks5, local_addr).await?;
+                    if let Some(mut tunnel) = tunnel {
+                        self.copy_bidirectional(&mut tunnel, &mut socks5).await?;
+
+                        app.after_forward(&mut ctx, tunnel).await?;
+                    } else {
+                        self.tcp_transfer(&target, &mut socks5).await?;
+                    }
+
+                    Ok(None)
                 }
                 Socks5Command::UDPAssociate => {
-                    todo!()
+                    self.execute_command_udp_assoc(&mut socks5, local_addr)
+                        .await?;
+                    Ok(None)
                 }
+
                 _ => Err(Error::new(
                     ErrorInner::UnSupportedProxyProtocol,
                     "parse command failed",
@@ -100,6 +245,15 @@ impl From<&TargetAddr> for crate::Target {
         match addr {
             TargetAddr::Ip(ip) => Self::Ip(*ip),
             TargetAddr::Domain(domain, port) => Self::Domain(domain.clone(), *port),
+        }
+    }
+}
+
+impl From<TargetAddr> for crate::Target {
+    fn from(addr: TargetAddr) -> Self {
+        match addr {
+            TargetAddr::Ip(ip) => Self::Ip(ip),
+            TargetAddr::Domain(domain, port) => Self::Domain(domain, port),
         }
     }
 }
