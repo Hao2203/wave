@@ -1,35 +1,25 @@
-#![allow(unused_imports)]
-use crate::{
-    error::Context, Connection, Error, ErrorKind, Proxy, ProxyCtx, ProxyInfo, Result, Target,
-};
+// #![allow(unused_imports)]
+use super::*;
+use error::Context;
 use fast_socks5::{
     consts,
-    server::{AcceptAuthentication, Config, Socks5Server, Socks5Socket},
+    server::{AcceptAuthentication, Config, Socks5Socket},
     util::target_addr::TargetAddr,
     ReplyError, Socks5Command, SocksError,
 };
-use futures_lite::{
-    stream::{self, Boxed},
-    StreamExt,
-};
-use std::{
-    net::SocketAddr,
-    pin::{pin, Pin},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::io::AsyncWriteExt;
 
 pub struct Socks5 {}
 
 #[async_trait::async_trait]
-impl Proxy for Socks5 {
-    const ROUTE_SIZE: usize = 20;
+impl<T: Connection + Unpin> Proxy<T> for Socks5 {
+    async fn serve<'a>(&self, incoming: Incoming<T>) -> Result<ProxyStatus<'a, T>>
+    where
+        T: 'a,
+    {
+        let local_addr = incoming.local_addr;
 
-    async fn proxy_incoming(
-        &self,
-        ctx: &mut dyn ProxyCtx,
-        incoming: &mut (dyn Connection + Unpin),
-    ) -> Result<()> {
         let mut config = Config::<AcceptAuthentication>::default();
         config.set_execute_command(false);
         let mut socks5 = Socks5Socket::new(incoming, Arc::new(config))
@@ -37,41 +27,29 @@ impl Proxy for Socks5 {
             .await
             .context("failed to upgrade to socks5")?;
         // println!("socks5 upgrade success");
+
         let target: Target = socks5
             .target_addr()
-            .ok_or(Error::new(ErrorKind::GetTargetFailed, "get target failed"))?
+            .ok_or(Error::new(ErrorInner::GetTargetFailed, "get target failed"))?
             .into();
-
-        let info = ProxyInfo {
-            proxy_mode: "socks5".into(),
-            target,
-        };
-
-        if let Err(e) = ctx.proxy_info_filter(&info).await {
-            let reply = new_reply(&ReplyError::ConnectionRefused, ctx.local_addr());
-            reply_to(&mut socks5, reply).await?;
-            return Err(e);
-        };
-
-        let command = socks5.cmd();
-        match command {
-            None => Err(Error::new(
-                ErrorKind::UnSupportedProxyProtocol,
-                "command is none",
-            )),
+        match socks5.cmd() {
+            None => Ok(ProxyStatus::Continue(socks5.into_inner().conn)),
             Some(cmd) => match cmd {
                 Socks5Command::TCPConnect => {
-                    reply_success(&mut socks5, ctx.local_addr()).await?;
+                    reply_success(&mut socks5, local_addr).await?;
 
-                    ctx.process_tunnel(&mut socks5).await?;
-
-                    Ok(())
+                    let info = ProxyHandler {
+                        proxy_mode: "socks5".into(),
+                        target,
+                        tunnel: Box::pin(socks5),
+                    };
+                    Ok(ProxyStatus::Success(info))
                 }
                 Socks5Command::UDPAssociate => {
                     todo!()
                 }
                 _ => Err(Error::new(
-                    ErrorKind::UnSupportedProxyProtocol,
+                    ErrorInner::UnSupportedProxyProtocol,
                     "parse command failed",
                 )),
             },
@@ -126,8 +104,8 @@ impl From<&TargetAddr> for crate::Target {
     }
 }
 
-impl From<&SocksError> for ErrorKind {
-    fn from(value: &SocksError) -> Self {
+impl From<SocksError> for ErrorInner {
+    fn from(value: SocksError) -> Self {
         type E = SocksError;
         match value {
             E::Io(e) => e.into(),
@@ -135,8 +113,8 @@ impl From<&SocksError> for ErrorKind {
                 expected: _,
                 found: _,
             }
-            | E::UnsupportedSocksVersion(_) => ErrorKind::UnSupportedProxyProtocol,
-            _ => ErrorKind::Unexpected,
+            | E::UnsupportedSocksVersion(_) => ErrorInner::UnSupportedProxyProtocol,
+            _ => ErrorInner::Unexpected,
         }
     }
 }
