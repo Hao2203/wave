@@ -38,7 +38,7 @@ impl Socks5 {
             Target::Domain(url, port) => {
                 tokio::time::timeout(
                     self.timeout,
-                    tokio::net::TcpStream::connect((url.as_str(), *port)),
+                    tokio::net::TcpStream::connect((url.as_ref(), *port)),
                 )
                 .await
             }
@@ -46,7 +46,7 @@ impl Socks5 {
                 tokio::time::timeout(self.timeout, tokio::net::TcpStream::connect(addr)).await
             }
         }
-        .unwrap()
+        .context("Connect timeout when connecting to tcp remote")?
         .context("Can't connect to remote destination")?;
 
         inbound
@@ -100,10 +100,19 @@ impl Socks5 {
     async fn handle_udp_request(&self, inbound: &UdpSocket, outbound: &UdpSocket) -> Result<()> {
         let mut buf = vec![0u8; 0x10000];
         loop {
-            let (size, client_addr) = inbound.recv_from(&mut buf).await.unwrap();
-            inbound.connect(client_addr).await.unwrap();
+            let (size, client_addr) = inbound
+                .recv_from(&mut buf)
+                .await
+                .context("Can't recv udp packet while handling udp request")?;
 
-            let (frag, target_addr, data) = parse_udp_request(&buf[..size]).await.unwrap();
+            inbound
+                .connect(client_addr)
+                .await
+                .context("Can't connect to client address while handling udp request")?;
+
+            let (frag, target_addr, data) = parse_udp_request(&buf[..size])
+                .await
+                .context("Can't parse udp request")?;
 
             if frag != 0 {
                 // debug!("Discard UDP frag packets sliently.");
@@ -114,11 +123,11 @@ impl Socks5 {
             let mut target_addr = target_addr
                 .resolve_dns()
                 .await
-                .unwrap()
+                .context("Can't resolve dns")?
                 .to_socket_addrs()
-                .unwrap()
+                .context("Can't convert to socket address")?
                 .next()
-                .unwrap();
+                .context("Can't get next socket address")?;
 
             target_addr.set_ip(match target_addr.ip() {
                 std::net::IpAddr::V4(v4) => std::net::IpAddr::V6(v4.to_ipv6_mapped()),
@@ -135,12 +144,20 @@ impl Socks5 {
     async fn handle_udp_response(&self, inbound: &UdpSocket, outbound: &UdpSocket) -> Result<()> {
         let mut buf = vec![0u8; 0x10000];
         loop {
-            let (size, remote_addr) = outbound.recv_from(&mut buf).await.unwrap();
+            let (size, remote_addr) = outbound
+                .recv_from(&mut buf)
+                .await
+                .context("Can't recv udp packet while handling udp response")?;
             // debug!("Recieve packet from {}", remote_addr);
 
-            let mut data = fast_socks5::new_udp_header(remote_addr).unwrap();
+            let mut data =
+                fast_socks5::new_udp_header(remote_addr).context("Can't create udp header")?;
             data.extend_from_slice(&buf[..size]);
-            inbound.send(&data).await.unwrap();
+
+            inbound
+                .send(&data)
+                .await
+                .context("Can't send packet while handling udp response")?;
         }
     }
 
@@ -185,6 +202,7 @@ impl<T: ProxyApp + Sync + 'static> ProxyService<T> for Socks5 {
             Some(cmd) => match cmd {
                 Socks5Command::TCPConnect => {
                     let tunnel = app.upstream(&mut ctx, &target).await?;
+                    let mut socks5 = socks5.into_inner();
 
                     reply_success(&mut socks5, local_addr).await?;
                     if let Some(mut tunnel) = tunnel {
@@ -254,7 +272,7 @@ impl From<&TargetAddr> for crate::Target {
     fn from(addr: &TargetAddr) -> Self {
         match addr {
             TargetAddr::Ip(ip) => Self::Ip(*ip),
-            TargetAddr::Domain(domain, port) => Self::Domain(domain.clone(), *port),
+            TargetAddr::Domain(domain, port) => Self::Domain(domain.clone().into(), *port),
         }
     }
 }
@@ -263,7 +281,7 @@ impl From<TargetAddr> for crate::Target {
     fn from(addr: TargetAddr) -> Self {
         match addr {
             TargetAddr::Ip(ip) => Self::Ip(ip),
-            TargetAddr::Domain(domain, port) => Self::Domain(domain, port),
+            TargetAddr::Domain(domain, port) => Self::Domain(domain.into(), port),
         }
     }
 }

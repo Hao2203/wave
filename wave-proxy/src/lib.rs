@@ -128,14 +128,8 @@ pub enum ProxyStatus<'a> {
     Continue(Incoming<'a>),
 }
 
-pub struct ProxyHandler<'a> {
-    pub proxy_mode: Cow<'static, str>,
-    pub target: Target,
-    pub tunnel: BoxConn<'a>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Target {
     Ip(SocketAddr),
-    Domain(String, u16),
+    Domain(Cow<'static, str>, u16),
 }

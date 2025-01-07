@@ -40,8 +40,11 @@ pub enum ErrorInner {
     ProxyFailed,
     #[display("Unsupported proxy protocol")]
     UnSupportedProxyProtocol,
-    #[display("Other error: {}", _0)]
     #[from]
+    #[display("Timeout")]
+    Timeout(tokio::time::error::Elapsed),
+    #[from]
+    #[display("Other error: {}", _0)]
     Other(anyhow::Error),
 }
 
@@ -57,5 +60,16 @@ where
     type Item = T;
     fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item> {
         self.map_err(|e| Error::new(e, message))
+    }
+}
+
+impl<T> Context for Option<T> {
+    type Item = T;
+    fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item> {
+        let message = message.into();
+        self.ok_or(Error::new(
+            ErrorInner::Other(anyhow::anyhow!("{}", message)),
+            message,
+        ))
     }
 }
