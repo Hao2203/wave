@@ -1,27 +1,37 @@
-pub use crate::error::{Error, ErrorInner, Result};
-use bytes::{Bytes, BytesMut};
+pub use crate::{
+    error::{Error, ErrorInner, Result},
+    server::{Builder, ProxyServer},
+};
+
 use std::{
     borrow::Cow,
+    io::Cursor,
     net::SocketAddr,
     pin::{pin, Pin},
-    sync::Arc,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 pub mod error;
+pub mod server;
 pub mod socks5;
-// #[cfg(test)]
-// mod tests;
-pub mod util;
+#[cfg(test)]
+mod tests;
 
 pub trait Connection: AsyncRead + AsyncWrite + Send {}
 
 impl<T: AsyncRead + AsyncWrite + Send> Connection for T {}
 
+#[async_trait::async_trait]
+pub trait Proxy<T> {
+    async fn serve<'a>(&self, incoming: Incoming<T>) -> Result<ProxyStatus<'a, T>>
+    where
+        T: 'a;
+}
+
 pub type BoxConn<'a> = Pin<Box<dyn Connection + 'a>>;
 
 pub struct Incoming<T> {
-    io_buf: Bytes,
+    io_buf: Cursor<bytes::Bytes>,
     pub conn: T,
     pub local_addr: SocketAddr,
 }
@@ -73,19 +83,12 @@ where
     }
 }
 
-#[async_trait::async_trait]
-pub trait Proxy<T> {
-    async fn serve<'a>(&self, incoming: Incoming<T>) -> Result<ProxyStatus<'a, T>>
-    where
-        T: 'a;
-}
-
 pub enum ProxyStatus<'a, T> {
-    Success(ProxyInfo<'a>),
+    Success(ProxyHandler<'a>),
     Continue(T),
 }
 
-pub struct ProxyInfo<'a> {
+pub struct ProxyHandler<'a> {
     pub proxy_mode: Cow<'static, str>,
     pub target: Target,
     pub tunnel: BoxConn<'a>,
@@ -95,61 +98,4 @@ pub struct ProxyInfo<'a> {
 pub enum Target {
     Ip(SocketAddr),
     Domain(String, u16),
-}
-
-#[derive(Default)]
-pub struct Builder<T> {
-    proxies: Vec<Arc<dyn Proxy<T> + Send + Sync>>,
-}
-
-impl<T> Builder<T> {
-    pub fn new() -> Self {
-        Self {
-            proxies: Vec::new(),
-        }
-    }
-
-    pub fn add_proxy(&mut self, proxy: impl Proxy<T> + Send + Sync + 'static) {
-        self.proxies.push(Arc::new(proxy));
-    }
-
-    pub fn build(self) -> Result<MixedProxy<T>> {
-        Ok(MixedProxy {
-            proxies: self.proxies.into(),
-        })
-    }
-}
-
-#[derive(Default)]
-pub struct MixedProxy<T> {
-    proxies: Arc<[Arc<dyn Proxy<T> + Send + Sync>]>,
-}
-
-impl<T> MixedProxy<T>
-where
-    T: AsyncRead + AsyncWrite + Send + Unpin,
-{
-    pub async fn serve<'a>(&self, mut conn: T, local_addr: SocketAddr) -> Result<ProxyInfo> {
-        let mut buf = BytesMut::with_capacity(1024);
-        conn.read_buf(&mut buf).await.unwrap();
-        let buf = buf.freeze();
-
-        for proxy in self.proxies.iter() {
-            let incoming = Incoming {
-                io_buf: buf.clone(),
-                conn,
-                local_addr,
-            };
-
-            match proxy.serve(incoming).await? {
-                ProxyStatus::Success(info) => return Ok(info),
-                ProxyStatus::Continue(io) => conn = io,
-            }
-        }
-
-        Err(Error::new(
-            ErrorInner::UnSupportedProxyProtocol,
-            "Unsupported proxy protocol in mixed proxy",
-        ))
-    }
 }

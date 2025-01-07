@@ -38,7 +38,7 @@ impl<T: Connection + Unpin> Proxy<T> for Socks5 {
                 Socks5Command::TCPConnect => {
                     reply_success(&mut socks5, local_addr).await?;
 
-                    let info = ProxyInfo {
+                    let info = ProxyHandler {
                         proxy_mode: "socks5".into(),
                         target,
                         tunnel: Box::pin(socks5),
