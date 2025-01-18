@@ -3,8 +3,8 @@ use crate::{
     error::Context, Connection, Error, ErrorInner, Incoming, ProxyApp, ProxyService, ProxyStatus,
     Result, Target,
 };
+use bytes::{Buf, Bytes};
 use fast_socks5::{
-    consts::{self},
     parse_udp_request,
     server::{AcceptAuthentication, Config, Socks5Socket},
     util::target_addr::TargetAddr,
@@ -20,6 +20,101 @@ use tokio::{
     net::UdpSocket,
     try_join,
 };
+
+use super::Transmit;
+
+#[rustfmt::skip]
+pub mod consts {
+    pub const SOCKS5_VERSION:                          u8 = 0x05;
+
+    pub const SOCKS5_AUTH_METHOD_NONE:                 u8 = 0x00;
+    pub const SOCKS5_AUTH_METHOD_GSSAPI:               u8 = 0x01;
+    pub const SOCKS5_AUTH_METHOD_PASSWORD:             u8 = 0x02;
+    pub const SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE:       u8 = 0xff;
+
+    pub const SOCKS5_CMD_TCP_CONNECT:                  u8 = 0x01;
+    pub const SOCKS5_CMD_TCP_BIND:                     u8 = 0x02;
+    pub const SOCKS5_CMD_UDP_ASSOCIATE:                u8 = 0x03;
+
+    pub const SOCKS5_ADDR_TYPE_IPV4:                   u8 = 0x01;
+    pub const SOCKS5_ADDR_TYPE_DOMAIN_NAME:            u8 = 0x03;
+    pub const SOCKS5_ADDR_TYPE_IPV6:                   u8 = 0x04;
+
+    pub const SOCKS5_REPLY_SUCCEEDED:                  u8 = 0x00;
+    pub const SOCKS5_REPLY_GENERAL_FAILURE:            u8 = 0x01;
+    pub const SOCKS5_REPLY_CONNECTION_NOT_ALLOWED:     u8 = 0x02;
+    pub const SOCKS5_REPLY_NETWORK_UNREACHABLE:        u8 = 0x03;
+    pub const SOCKS5_REPLY_HOST_UNREACHABLE:           u8 = 0x04;
+    pub const SOCKS5_REPLY_CONNECTION_REFUSED:         u8 = 0x05;
+    pub const SOCKS5_REPLY_TTL_EXPIRED:                u8 = 0x06;
+    pub const SOCKS5_REPLY_COMMAND_NOT_SUPPORTED:      u8 = 0x07;
+    pub const SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;
+}
+
+pub struct Socks5Proxy {
+    source: SocketAddr,
+    local: SocketAddr,
+    state: State,
+}
+
+impl Socks5Proxy {
+    pub fn parse_request(&self, buf: &mut bytes::Bytes) -> Result<Socks5Request> {
+        if buf.len() < 2 {
+            return Err(Error::new(
+                ErrorInner::UnSupportedProxyProtocol,
+                "Invalid socks5 request",
+            ));
+        }
+        let version = buf.get_u8();
+        let n_methods = buf.get_u8();
+        let methods = buf.split_to(n_methods as usize);
+
+        Socks5Request::new(version, n_methods, methods)
+    }
+
+    pub fn process_request(&mut self, mut request: Socks5Request) -> Result<()> {
+        let method = request.methods.get_u8();
+        match method {
+            consts::SOCKS5_AUTH_METHOD_NONE => {
+                self.state = State::Consult(Transmit {
+                    mode: super::Protocol::Tcp,
+                    local: self.local,
+                    to: self.source,
+                    data: vec![consts::SOCKS5_VERSION, method].into(),
+                });
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorInner::UnSupportedProxyProtocol,
+                    "Invalid socks5 request",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct Socks5Request {
+    pub n_methods: u8,
+    pub methods: Bytes,
+}
+
+impl Socks5Request {
+    pub fn new(version: u8, n_methods: u8, methods: Bytes) -> Result<Self> {
+        if version != 5 {
+            return Err(Error::new(
+                ErrorInner::UnSupportedProxyProtocol,
+                "Invalid socks5 version",
+            ));
+        }
+        Ok(Self { n_methods, methods })
+    }
+}
+
+pub enum State {
+    AwaitingHandling,
+    Consult(Transmit),
+}
 
 pub struct Socks5 {
     timeout: Duration,
