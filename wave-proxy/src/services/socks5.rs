@@ -1,9 +1,11 @@
 // #![allow(unused_imports)]
+use super::*;
 use crate::{
     error::Context, Connection, Error, ErrorInner, Incoming, ProxyApp, ProxyService, ProxyStatus,
     Result, Target,
 };
-use bytes::{Buf, Bytes};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+pub use consts::*;
 use fast_socks5::{
     parse_udp_request,
     server::{AcceptAuthentication, Config, Socks5Socket},
@@ -20,8 +22,6 @@ use tokio::{
     net::UdpSocket,
     try_join,
 };
-
-use super::Transmit;
 
 #[rustfmt::skip]
 pub mod consts {
@@ -51,14 +51,78 @@ pub mod consts {
     pub const SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum Method {
+    None = SOCKS5_AUTH_METHOD_NONE,
+    Gssapi = SOCKS5_AUTH_METHOD_GSSAPI,
+    Password = SOCKS5_AUTH_METHOD_PASSWORD,
+    NotAcceptable = SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE,
+}
+
+impl TryFrom<u8> for Method {
+    type Error = Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            SOCKS5_AUTH_METHOD_NONE => Ok(Method::None),
+            SOCKS5_AUTH_METHOD_GSSAPI => Ok(Method::Gssapi),
+            SOCKS5_AUTH_METHOD_PASSWORD => Ok(Method::Password),
+            SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE => Ok(Method::NotAcceptable),
+            _ => Err(Error::new(
+                ErrorInner::UnSupportedProxyProtocol,
+                "Invalid socks5 method",
+            )),
+        }
+    }
+}
+
 pub struct Socks5Proxy {
     source: SocketAddr,
     local: SocketAddr,
-    state: State,
 }
 
 impl Socks5Proxy {
-    pub fn parse_request(&self, buf: &mut bytes::Bytes) -> Result<Socks5Request> {
+    pub fn process_consult_request(&self, request: ConsultRequest) -> Result<Bytes> {
+        let method = request.methods[0];
+        match method {
+            Method::None => Ok(ConsultResponse(method).into()),
+            _ => Err(Error::new(
+                ErrorInner::UnSupportedProxyProtocol,
+                "Invalid socks5 request",
+            )),
+        }
+    }
+}
+
+/// +----+----------+----------+
+/// |VER | NMETHODS | METHODS  |
+/// +----+----------+----------+
+/// | 1  |    1     | 1 to 255 |
+/// +----+----------+----------+
+pub struct ConsultRequest {
+    pub n_methods: u8,
+    pub methods: Vec<Method>,
+}
+
+impl ConsultRequest {
+    pub fn new(version: u8, n_methods: u8, methods: Bytes) -> Result<Self> {
+        if version != 5 {
+            return Err(Error::new(
+                ErrorInner::UnSupportedProxyProtocol,
+                "Invalid socks5 version",
+            ));
+        }
+        let methods = methods
+            .into_iter()
+            .map(|x| x.try_into())
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { n_methods, methods })
+    }
+}
+
+impl TryFrom<&mut bytes::Bytes> for ConsultRequest {
+    type Error = Error;
+    fn try_from(buf: &mut bytes::Bytes) -> Result<Self> {
         if buf.len() < 2 {
             return Err(Error::new(
                 ErrorInner::UnSupportedProxyProtocol,
@@ -69,50 +133,28 @@ impl Socks5Proxy {
         let n_methods = buf.get_u8();
         let methods = buf.split_to(n_methods as usize);
 
-        Socks5Request::new(version, n_methods, methods)
-    }
-
-    pub fn process_request(&mut self, mut request: Socks5Request) -> Result<()> {
-        let method = request.methods.get_u8();
-        match method {
-            consts::SOCKS5_AUTH_METHOD_NONE => {
-                self.state = State::Consult(Transmit {
-                    mode: super::Protocol::Tcp,
-                    local: self.local,
-                    to: self.source,
-                    data: vec![consts::SOCKS5_VERSION, method].into(),
-                });
-            }
-            _ => {
-                return Err(Error::new(
-                    ErrorInner::UnSupportedProxyProtocol,
-                    "Invalid socks5 request",
-                ));
-            }
-        }
-        Ok(())
+        ConsultRequest::new(version, n_methods, methods)
     }
 }
 
-pub struct Socks5Request {
-    pub n_methods: u8,
-    pub methods: Bytes,
-}
+/// +----+--------+
+/// |VER | METHOD |
+/// +----+--------+
+/// | 1  |   1    |
+/// +----+--------+
+pub struct ConsultResponse(pub Method);
 
-impl Socks5Request {
-    pub fn new(version: u8, n_methods: u8, methods: Bytes) -> Result<Self> {
-        if version != 5 {
-            return Err(Error::new(
-                ErrorInner::UnSupportedProxyProtocol,
-                "Invalid socks5 version",
-            ));
-        }
-        Ok(Self { n_methods, methods })
+impl From<ConsultResponse> for Bytes {
+    fn from(value: ConsultResponse) -> Self {
+        let mut buf = BytesMut::with_capacity(2);
+        buf.put_u8(5);
+        buf.put_u8(value.0 as u8);
+        buf.freeze()
     }
 }
 
 pub enum State {
-    AwaitingHandling,
+    Pending,
     Consult(Transmit),
 }
 

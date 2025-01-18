@@ -6,13 +6,11 @@ use bytes::Bytes;
 pub mod socks5;
 
 pub trait Proxy {
-    fn poll_output(&mut self) -> Result<Output>;
-
-    fn handle_input(&mut self, now: Instant, input: Input) -> Result<()>;
+    fn poll_output(&mut self, now: Instant, input: Input) -> Result<Output>;
 }
 
 pub enum Output {
-    AwaitingHandling,
+    Pending,
     Consult(Transmit),
     Connect(Connect),
     Relay(Relay),
