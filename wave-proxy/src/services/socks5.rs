@@ -7,6 +7,7 @@ use crate::{
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 pub use consts::*;
 use std::{
+    collections::VecDeque,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
     sync::Arc,
     time::Duration,
@@ -69,12 +70,83 @@ impl TryFrom<u8> for Method {
 
 pub struct Socks5Proxy {
     source: SocketAddr,
-    local: SocketAddr,
+    tcp_bind: SocketAddr,
+    recvs: VecDeque<Input>,
+    status: Status,
+}
+
+pub enum Status {
+    Consult,
+    Connect,
+    Reley { target: Address },
+}
+
+impl Socks5Proxy {
+    pub fn target(&self) -> Option<&Address> {
+        match &self.status {
+            Status::Reley { target } => Some(target),
+            _ => None,
+        }
+    }
+
+    pub fn poll_output(&mut self) -> Result<Output> {
+        while let Some(input) = self.recvs.pop_front() {
+            let res = match input {
+                Input::Receive(receive) => self.process_receive(receive),
+            }?;
+            if let Some(res) = res {
+                return Ok(res);
+            }
+        }
+        Ok(Output::Pending)
+    }
+
+    fn process_receive(&mut self, mut receive: Receive) -> Result<Option<Output>> {
+        match &self.status {
+            Status::Consult => {
+                let request = codec::decode_consult_request(&mut receive.data)?;
+                let res = self.process_consult_request(request)?;
+                let res = Output::Transmit(Transmit {
+                    proto: receive.proto,
+                    local: self.tcp_bind,
+                    to: self.source.into(),
+                    data: codec::encode_consult_response(res),
+                });
+                self.status = Status::Connect;
+                Ok(Some(res))
+            }
+            Status::Connect => {
+                let request = codec::decode_connect_request(&mut receive.data)?;
+                self.status = Status::Reley {
+                    target: request.target,
+                };
+                Ok(None)
+            }
+            Status::Reley { target } => {
+                let transmit = Transmit {
+                    proto: receive.proto,
+                    local: self.tcp_bind,
+                    to: target.clone(),
+                    data: receive.data,
+                };
+                Ok(Some(Output::Transmit(transmit)))
+            }
+        }
+    }
+
+    fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse> {
+        if !request.methods.contains(&Method::None) {
+            return Err(Error::message(
+                ErrorKind::UnSupportedProxyProtocol,
+                "Invalid socks5 request",
+            ));
+        }
+        Ok(ConsultResponse(Method::None))
+    }
 }
 
 pub enum Input {
     Receive(Receive),
-    Connect(ConnectedStatus),
 }
 
 pub struct Receive {
@@ -84,27 +156,16 @@ pub struct Receive {
     pub data: Bytes,
 }
 
-pub struct Connect {
-    pub proto: Protocol,
-    pub local: SocketAddr,
-    pub target: Address,
+pub enum Output {
+    Pending,
+    Transmit(Transmit),
 }
 
-pub struct Bind {
+pub struct Transmit {
     pub proto: Protocol,
     pub local: SocketAddr,
-}
-
-impl Socks5Proxy {
-    pub fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse> {
-        if !request.methods.contains(&Method::None) {
-            return Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 request",
-            ));
-        }
-        Ok(ConsultResponse(Method::None))
-    }
+    pub to: Address,
+    pub data: Bytes,
 }
 
 /// |VER | NMETHODS | METHODS  |

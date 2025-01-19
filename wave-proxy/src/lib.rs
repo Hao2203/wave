@@ -3,8 +3,8 @@ pub use crate::{
     // server::{Builder, ProxyServer},
 };
 
+use derive_more::derive::From;
 use std::{
-    borrow::Cow,
     future::Future,
     io::Cursor,
     net::SocketAddr,
@@ -130,8 +130,9 @@ pub enum ProxyStatus<'a> {
     Continue(Incoming<'a>),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, From, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Address {
+    #[from]
     Ip(SocketAddr),
-    Domain(Cow<'static, str>, u16),
+    Domain(Arc<str>, u16),
 }
