@@ -1,5 +1,5 @@
 pub use crate::{
-    error::{Error, ErrorInner, Result},
+    error::{Error, ErrorKind, Result},
     // server::{Builder, ProxyServer},
 };
 
@@ -31,7 +31,7 @@ pub trait ProxyApp {
     fn upstream(
         &self,
         ctx: &mut Self::Ctx,
-        target: &Target,
+        target: &Address,
     ) -> impl Future<Output = Result<Option<Self::Upstream>>> + Send;
 
     fn after_forward(
@@ -57,7 +57,7 @@ where
     fn upstream(
         &self,
         ctx: &mut Self::Ctx,
-        target: &Target,
+        target: &Address,
     ) -> impl Future<Output = Result<Option<Self::Upstream>>> + Send {
         self.as_ref().upstream(ctx, target)
     }
@@ -131,7 +131,7 @@ pub enum ProxyStatus<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Target {
+pub enum Address {
     Ip(SocketAddr),
     Domain(Cow<'static, str>, u16),
 }

@@ -1,22 +1,37 @@
 #![allow(unused)]
 use derive_more::derive::{Display, Error, From};
-use std::borrow::Cow;
+use std::fmt::{Debug, Display};
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-#[derive(Debug, Display)]
-#[display("Inner: {kind}, Message: {message}")]
+#[derive(Debug, From, Display)]
+#[display("Kind: {kind}, source: {source:?}")]
 pub struct Error {
-    kind: ErrorInner,
-    message: Cow<'static, str>,
+    kind: ErrorKind,
+    source: Option<anyhow::Error>,
 }
 
 impl Error {
-    pub fn new(kind: impl Into<ErrorInner>, message: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(kind: ErrorKind, source: Option<impl Into<anyhow::Error>>) -> Self {
         Self {
-            kind: kind.into(),
-            message: message.into(),
+            kind,
+            source: source.map(Into::into),
         }
+    }
+
+    pub fn message(kind: ErrorKind, message: impl Display + Debug + Sync + Send + 'static) -> Self {
+        Self {
+            kind,
+            source: Some(anyhow::Error::msg(message)),
+        }
+    }
+
+    pub fn with_kind(kind: ErrorKind) -> Self {
+        Self { kind, source: None }
+    }
+
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
     }
 }
 
@@ -26,50 +41,43 @@ impl std::error::Error for Error {
     }
 }
 
-#[derive(Debug, Display, From, Error)]
+#[derive(Debug, Clone, Copy, Display, Error)]
 #[non_exhaustive]
-pub enum ErrorInner {
+pub enum ErrorKind {
     #[display("Unexpected error")]
     Unexpected,
-    #[display("IO error: {}", _0)]
-    #[from]
-    IoError(std::io::Error),
+    #[display("IO error")]
+    IoError,
     #[display("Get target failed")]
     GetTargetFailed,
     #[display("Proxy failed")]
     ProxyFailed,
     #[display("Unsupported proxy protocol")]
     UnSupportedProxyProtocol,
-    #[from]
     #[display("Timeout")]
-    Timeout(tokio::time::error::Elapsed),
-    #[from]
-    #[display("Other error: {}", _0)]
-    Other(anyhow::Error),
+    Timeout,
+    #[display("Other error")]
+    Other,
 }
 
-pub(crate) trait Context {
+pub(crate) trait WithKind {
     type Item;
-    fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item>;
+    fn with_kind(self, kind: ErrorKind) -> Result<Self::Item>;
 }
 
-impl<T, E> Context for Result<T, E>
+impl<T, E> WithKind for Result<T, E>
 where
-    E: Into<ErrorInner>,
+    E: Into<anyhow::Error>,
 {
     type Item = T;
-    fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item> {
-        self.map_err(|e| Error::new(e, message))
+    fn with_kind(self, kind: ErrorKind) -> Result<Self::Item> {
+        self.map_err(|e| Error::new(kind, Some(e)))
     }
 }
 
-impl<T> Context for Option<T> {
+impl<T> WithKind for Option<T> {
     type Item = T;
-    fn context(self, message: impl Into<Cow<'static, str>>) -> Result<Self::Item> {
-        let message = message.into();
-        self.ok_or(Error::new(
-            ErrorInner::Other(anyhow::anyhow!("{}", message)),
-            message,
-        ))
+    fn with_kind(self, kind: ErrorKind) -> Result<Self::Item> {
+        self.ok_or(Error::with_kind(kind))
     }
 }

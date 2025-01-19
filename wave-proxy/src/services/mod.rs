@@ -1,12 +1,13 @@
-use std::time::Instant;
-
 use super::*;
 use bytes::Bytes;
+use std::time::Instant;
 
 pub mod socks5;
 
 pub trait Proxy {
-    fn poll_output(&mut self, now: Instant, input: Input) -> Result<Output>;
+    fn poll_output(&mut self, now: Instant) -> Result<Output>;
+
+    fn handle_input(&mut self, now: Instant, input: Input);
 }
 
 pub enum Output {
@@ -25,7 +26,7 @@ pub struct Bind {
 
 pub struct Connect {
     pub bind: Bind,
-    pub remote_target: Target,
+    pub remote_target: Address,
     pub transmit: Transmit,
 }
 
@@ -37,7 +38,7 @@ pub struct Transmit {
 }
 
 pub struct Relay {
-    pub target: Target,
+    pub target: Address,
     pub data: Bytes,
 }
 

@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+
 use super::*;
 use std::sync::Arc;
 
@@ -73,8 +75,8 @@ where
         }
 
         Err(Error::new(
-            ErrorInner::UnSupportedProxyProtocol,
-            "Unsupported proxy protocol in mixed proxy",
+            ErrorKind::UnSupportedProxyProtocol,
+            Some(anyhow!("Unsupported proxy protocol")),
         ))
     }
 }
