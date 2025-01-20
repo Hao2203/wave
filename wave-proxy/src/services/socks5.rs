@@ -45,21 +45,21 @@ pub mod consts {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(u8)]
-pub enum Method {
+pub enum AuthMethod {
     None = SOCKS5_AUTH_METHOD_NONE,
     Gssapi = SOCKS5_AUTH_METHOD_GSSAPI,
     Password = SOCKS5_AUTH_METHOD_PASSWORD,
     NotAcceptable = SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE,
 }
 
-impl TryFrom<u8> for Method {
+impl TryFrom<u8> for AuthMethod {
     type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            SOCKS5_AUTH_METHOD_NONE => Ok(Method::None),
-            SOCKS5_AUTH_METHOD_GSSAPI => Ok(Method::Gssapi),
-            SOCKS5_AUTH_METHOD_PASSWORD => Ok(Method::Password),
-            SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE => Ok(Method::NotAcceptable),
+            SOCKS5_AUTH_METHOD_NONE => Ok(AuthMethod::None),
+            SOCKS5_AUTH_METHOD_GSSAPI => Ok(AuthMethod::Gssapi),
+            SOCKS5_AUTH_METHOD_PASSWORD => Ok(AuthMethod::Password),
+            SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE => Ok(AuthMethod::NotAcceptable),
             _ => Err(Error::message(
                 ErrorKind::UnSupportedProxyProtocol,
                 "Invalid socks5 method",
@@ -126,13 +126,13 @@ impl Socks5Proxy {
     }
 
     fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse> {
-        if !request.methods.contains(&Method::None) {
+        if !request.methods.contains(&AuthMethod::None) {
             return Err(Error::message(
                 ErrorKind::UnSupportedProxyProtocol,
                 "Invalid socks5 request",
             ));
         }
-        Ok(ConsultResponse(Method::None))
+        Ok(ConsultResponse(AuthMethod::None))
     }
 
     fn set_status(&mut self, status: Status) {
@@ -214,7 +214,7 @@ impl Connect<'_> {
 /// | 1  |    1     | 1 to 255 |
 pub struct ConsultRequest {
     pub n_methods: u8,
-    pub methods: Vec<Method>,
+    pub methods: Vec<AuthMethod>,
 }
 
 /// +----+--------+
@@ -222,7 +222,7 @@ pub struct ConsultRequest {
 /// +----+--------+
 /// | 1  |   1    |
 /// +----+--------+
-pub struct ConsultResponse(pub Method);
+pub struct ConsultResponse(pub AuthMethod);
 
 pub struct ConnectRequest {
     pub command: Command,
