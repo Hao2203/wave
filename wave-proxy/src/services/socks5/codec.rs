@@ -128,22 +128,15 @@ pub fn encode_address(address: Address) -> Bytes {
             match addr {
                 SocketAddr::V4(addr) => {
                     buf.put_u8(AddrType::V4 as u8);
-                    buf.put_u8(addr.ip().octets()[0]);
-                    buf.put_u8(addr.ip().octets()[1]);
-                    buf.put_u8(addr.ip().octets()[2]);
-                    buf.put_u8(addr.ip().octets()[3]);
+                    addr.ip().octets().into_iter().for_each(|x| buf.put_u8(x));
                     buf.put_u16(addr.port());
                 }
                 SocketAddr::V6(addr) => {
                     buf.put_u8(AddrType::V6 as u8);
-                    buf.put_u16(addr.ip().segments()[0]);
-                    buf.put_u16(addr.ip().segments()[1]);
-                    buf.put_u16(addr.ip().segments()[2]);
-                    buf.put_u16(addr.ip().segments()[3]);
-                    buf.put_u16(addr.ip().segments()[4]);
-                    buf.put_u16(addr.ip().segments()[5]);
-                    buf.put_u16(addr.ip().segments()[6]);
-                    buf.put_u16(addr.ip().segments()[7]);
+                    addr.ip()
+                        .segments()
+                        .into_iter()
+                        .for_each(|x| buf.put_u16(x));
                     buf.put_u16(addr.port());
                 }
             }
@@ -153,8 +146,8 @@ pub fn encode_address(address: Address) -> Bytes {
             let mut buf = BytesMut::with_capacity(2 + domain.len());
             buf.put_u8(AddrType::Domain as u8);
             buf.put_u8(domain.len() as u8);
-            buf.put_u16(port);
             buf.put(domain.as_bytes());
+            buf.put_u16(port);
             buf.freeze()
         }
     }

@@ -1,6 +1,5 @@
 use super::*;
 use bytes::Bytes;
-use std::time::Instant;
 
 pub mod socks5;
 

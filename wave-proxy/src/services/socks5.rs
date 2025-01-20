@@ -69,8 +69,6 @@ impl TryFrom<u8> for Method {
 }
 
 pub struct Socks5Proxy {
-    source: SocketAddr,
-    tcp_bind: SocketAddr,
     recvs: VecDeque<Input>,
     status: Status,
 }
@@ -82,54 +80,47 @@ pub enum Status {
 }
 
 impl Socks5Proxy {
-    pub fn target(&self) -> Option<&Address> {
-        match &self.status {
-            Status::Reley { target } => Some(target),
-            _ => None,
-        }
-    }
-
     pub fn poll_output(&mut self) -> Result<Output> {
-        while let Some(input) = self.recvs.pop_front() {
-            let res = match input {
+        self.recvs
+            .pop_front()
+            .map(|input| match input {
                 Input::Receive(receive) => self.process_receive(receive),
-            }?;
-            if let Some(res) = res {
-                return Ok(res);
-            }
-        }
-        Ok(Output::Pending)
+            })
+            .unwrap_or(Ok(Output::Pending))
     }
 
-    fn process_receive(&mut self, mut receive: Receive) -> Result<Option<Output>> {
+    fn process_receive(&mut self, mut receive: Receive) -> Result<Output> {
         match &self.status {
             Status::Consult => {
                 let request = codec::decode_consult_request(&mut receive.data)?;
                 let res = self.process_consult_request(request)?;
                 let res = Output::Transmit(Transmit {
                     proto: receive.proto,
-                    local: self.tcp_bind,
-                    to: self.source.into(),
+                    local: receive.local,
+                    to: receive.source.into(),
                     data: codec::encode_consult_response(res),
                 });
-                self.status = Status::Connect;
-                Ok(Some(res))
+                self.set_status(Status::Connect);
+                Ok(res)
             }
             Status::Connect => {
                 let request = codec::decode_connect_request(&mut receive.data)?;
-                self.status = Status::Reley {
+                let connect = Connect {
+                    proxy: self,
                     target: request.target,
+                    source: receive.source,
+                    local: receive.local,
                 };
-                Ok(None)
+                Ok(Output::Connect(connect))
             }
             Status::Reley { target } => {
                 let transmit = Transmit {
                     proto: receive.proto,
-                    local: self.tcp_bind,
+                    local: receive.local,
                     to: target.clone(),
                     data: receive.data,
                 };
-                Ok(Some(Output::Transmit(transmit)))
+                Ok(Output::Transmit(transmit))
             }
         }
     }
@@ -142,6 +133,10 @@ impl Socks5Proxy {
             ));
         }
         Ok(ConsultResponse(Method::None))
+    }
+
+    fn set_status(&mut self, status: Status) {
+        self.status = status;
     }
 }
 
@@ -156,9 +151,10 @@ pub struct Receive {
     pub data: Bytes,
 }
 
-pub enum Output {
+pub enum Output<'a> {
     Pending,
     Transmit(Transmit),
+    Connect(Connect<'a>),
 }
 
 pub struct Transmit {
@@ -166,6 +162,51 @@ pub struct Transmit {
     pub local: SocketAddr,
     pub to: Address,
     pub data: Bytes,
+}
+
+pub struct Connect<'a> {
+    proxy: &'a mut Socks5Proxy,
+    pub target: Address,
+    pub source: SocketAddr,
+    pub local: SocketAddr,
+}
+
+impl Connect<'_> {
+    pub fn target(&self) -> &Address {
+        &self.target
+    }
+
+    pub fn connected_success(self) -> Transmit {
+        let res = ConnectResponse {
+            status: ConnectedStatus::Succeeded,
+            address: self.target.clone(),
+        };
+        let data = codec::encode_connect_response(res);
+        self.proxy.set_status(Status::Reley {
+            target: self.target,
+        });
+        Transmit {
+            proto: Protocol::Tcp,
+            local: self.local,
+            to: self.source.into(),
+            data,
+        }
+    }
+
+    pub fn connected_failed(self, status: ConnectedStatus) -> Transmit {
+        let res = ConnectResponse {
+            status,
+            address: self.target,
+        };
+        let data = codec::encode_connect_response(res);
+        self.proxy.set_status(Status::Consult);
+        Transmit {
+            proto: Protocol::Tcp,
+            local: self.local,
+            to: self.source.into(),
+            data,
+        }
+    }
 }
 
 /// |VER | NMETHODS | METHODS  |
