@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use super::{proto::*, *};
+use super::{types::*, *};
 
 #[test]
 fn encode_decode() {

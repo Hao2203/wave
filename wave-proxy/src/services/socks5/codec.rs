@@ -1,4 +1,4 @@
-use super::proto::*;
+use super::types::*;
 use crate::{Address, Error, ErrorKind, Result};
 use bytes::{Buf as _, BufMut, Bytes, BytesMut};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};

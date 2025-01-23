@@ -2,11 +2,11 @@
 use super::*;
 use crate::{Address, Error, ErrorKind, Result};
 use bytes::Bytes;
-use proto::*;
 use std::{collections::VecDeque, net::SocketAddr};
+use types::*;
 
 pub mod codec;
-pub mod proto;
+pub mod types;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Socks5Proxy {
