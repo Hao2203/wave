@@ -1,4 +1,7 @@
-use super::*;
+use super::proto::*;
+use crate::{Address, Error, ErrorKind, Result};
+use bytes::{Buf as _, BufMut, Bytes, BytesMut};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 pub fn decode_consult_request(buf: &mut Bytes) -> Result<ConsultRequest> {
     if buf.len() < 2 {
@@ -62,7 +65,7 @@ pub fn encode_connect_response(response: ConnectResponse) -> Bytes {
     buf.put_u8(5);
     buf.put_u8(response.status as u8);
     buf.put_u8(0);
-    buf.put(encode_address(response.address));
+    buf.put(encode_address(response.bind_address));
     buf.freeze()
 }
 

@@ -1,85 +1,34 @@
-#![allow(unused_imports)]
+// #![allow(unused_imports)]
 use super::*;
-use crate::{
-    error::WithKind, Address, Connection, Error, ErrorKind, Incoming, ProxyApp, ProxyService,
-    ProxyStatus, Result,
-};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-pub use consts::*;
-use std::{
-    collections::VecDeque,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
-    sync::Arc,
-    time::Duration,
-};
+use crate::{Address, Error, ErrorKind, Result};
+use bytes::Bytes;
+use proto::*;
+use std::{collections::VecDeque, net::SocketAddr};
 
 pub mod codec;
+pub mod proto;
 
-#[rustfmt::skip]
-pub mod consts {
-    pub const SOCKS5_VERSION:                          u8 = 0x05;
-
-    pub const SOCKS5_AUTH_METHOD_NONE:                 u8 = 0x00;
-    pub const SOCKS5_AUTH_METHOD_GSSAPI:               u8 = 0x01;
-    pub const SOCKS5_AUTH_METHOD_PASSWORD:             u8 = 0x02;
-    pub const SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE:       u8 = 0xff;
-
-    pub const SOCKS5_CMD_TCP_CONNECT:                  u8 = 0x01;
-    pub const SOCKS5_CMD_TCP_BIND:                     u8 = 0x02;
-    pub const SOCKS5_CMD_UDP_ASSOCIATE:                u8 = 0x03;
-
-    pub const SOCKS5_ADDR_TYPE_IPV4:                   u8 = 0x01;
-    pub const SOCKS5_ADDR_TYPE_DOMAIN_NAME:            u8 = 0x03;
-    pub const SOCKS5_ADDR_TYPE_IPV6:                   u8 = 0x04;
-
-    pub const SOCKS5_REPLY_SUCCEEDED:                  u8 = 0x00;
-    pub const SOCKS5_REPLY_GENERAL_FAILURE:            u8 = 0x01;
-    pub const SOCKS5_REPLY_CONNECTION_NOT_ALLOWED:     u8 = 0x02;
-    pub const SOCKS5_REPLY_NETWORK_UNREACHABLE:        u8 = 0x03;
-    pub const SOCKS5_REPLY_HOST_UNREACHABLE:           u8 = 0x04;
-    pub const SOCKS5_REPLY_CONNECTION_REFUSED:         u8 = 0x05;
-    pub const SOCKS5_REPLY_TTL_EXPIRED:                u8 = 0x06;
-    pub const SOCKS5_REPLY_COMMAND_NOT_SUPPORTED:      u8 = 0x07;
-    pub const SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[repr(u8)]
-pub enum AuthMethod {
-    None = SOCKS5_AUTH_METHOD_NONE,
-    Gssapi = SOCKS5_AUTH_METHOD_GSSAPI,
-    Password = SOCKS5_AUTH_METHOD_PASSWORD,
-    NotAcceptable = SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE,
-}
-
-impl TryFrom<u8> for AuthMethod {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            SOCKS5_AUTH_METHOD_NONE => Ok(AuthMethod::None),
-            SOCKS5_AUTH_METHOD_GSSAPI => Ok(AuthMethod::Gssapi),
-            SOCKS5_AUTH_METHOD_PASSWORD => Ok(AuthMethod::Password),
-            SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE => Ok(AuthMethod::NotAcceptable),
-            _ => Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 method",
-            )),
-        }
-    }
-}
-
+#[derive(Debug, PartialEq, Eq)]
 pub struct Socks5Proxy {
     recvs: VecDeque<Input>,
     status: Status,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Status {
-    Consult,
-    Connect,
-    Reley { target: Address },
+    Consulting,
+    Connecting,
+    Relaying { target: Address },
 }
 
 impl Socks5Proxy {
+    pub fn new() -> Self {
+        Socks5Proxy {
+            recvs: VecDeque::new(),
+            status: Status::Consulting,
+        }
+    }
+
     pub fn poll_output(&mut self) -> Result<Output> {
         self.recvs
             .pop_front()
@@ -89,9 +38,13 @@ impl Socks5Proxy {
             .unwrap_or(Ok(Output::Pending))
     }
 
+    pub fn input(&mut self, input: Input) {
+        self.recvs.push_back(input);
+    }
+
     fn process_receive(&mut self, mut receive: Receive) -> Result<Output> {
         match &self.status {
-            Status::Consult => {
+            Status::Consulting => {
                 let request = codec::decode_consult_request(&mut receive.data)?;
                 let res = self.process_consult_request(request)?;
                 let res = Output::Transmit(Transmit {
@@ -100,10 +53,10 @@ impl Socks5Proxy {
                     to: receive.source.into(),
                     data: codec::encode_consult_response(res),
                 });
-                self.set_status(Status::Connect);
+                self.set_status(Status::Connecting);
                 Ok(res)
             }
-            Status::Connect => {
+            Status::Connecting => {
                 let request = codec::decode_connect_request(&mut receive.data)?;
                 let connect = Connect {
                     proxy: self,
@@ -113,7 +66,7 @@ impl Socks5Proxy {
                 };
                 Ok(Output::Connect(connect))
             }
-            Status::Reley { target } => {
+            Status::Relaying { target } => {
                 let transmit = Transmit {
                     proto: receive.proto,
                     local: receive.local,
@@ -140,10 +93,18 @@ impl Socks5Proxy {
     }
 }
 
+impl Default for Socks5Proxy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum Input {
     Receive(Receive),
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Receive {
     pub proto: Protocol,
     pub local: SocketAddr,
@@ -151,12 +112,14 @@ pub struct Receive {
     pub data: Bytes,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Output<'a> {
     Pending,
     Transmit(Transmit),
     Connect(Connect<'a>),
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Transmit {
     pub proto: Protocol,
     pub local: SocketAddr,
@@ -164,6 +127,7 @@ pub struct Transmit {
     pub data: Bytes,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Connect<'a> {
     proxy: &'a mut Socks5Proxy,
     pub target: Address,
@@ -179,10 +143,10 @@ impl Connect<'_> {
     pub fn connected_success(self) -> Transmit {
         let res = ConnectResponse {
             status: ConnectedStatus::Succeeded,
-            address: self.target.clone(),
+            bind_address: self.local.into(),
         };
         let data = codec::encode_connect_response(res);
-        self.proxy.set_status(Status::Reley {
+        self.proxy.set_status(Status::Relaying {
             target: self.target,
         });
         Transmit {
@@ -196,10 +160,10 @@ impl Connect<'_> {
     pub fn connected_failed(self, status: ConnectedStatus) -> Transmit {
         let res = ConnectResponse {
             status,
-            address: self.target,
+            bind_address: self.target,
         };
         let data = codec::encode_connect_response(res);
-        self.proxy.set_status(Status::Consult);
+        self.proxy.set_status(Status::Consulting);
         Transmit {
             proto: Protocol::Tcp,
             local: self.local,
@@ -209,86 +173,5 @@ impl Connect<'_> {
     }
 }
 
-/// |VER | NMETHODS | METHODS  |
-/// |:--:|:--------:|:-------:|
-/// | 1  |    1     | 1 to 255 |
-pub struct ConsultRequest {
-    pub n_methods: u8,
-    pub methods: Vec<AuthMethod>,
-}
-
-/// +----+--------+
-/// |VER | METHOD |
-/// +----+--------+
-/// | 1  |   1    |
-/// +----+--------+
-pub struct ConsultResponse(pub AuthMethod);
-
-pub struct ConnectRequest {
-    pub command: Command,
-    pub target: Address,
-}
-
-pub struct ConnectResponse {
-    pub status: ConnectedStatus,
-    pub address: Address,
-}
-
-#[repr(u8)]
-pub enum ConnectedStatus {
-    Succeeded = SOCKS5_REPLY_SUCCEEDED,
-    GeneralServerFailure = SOCKS5_REPLY_GENERAL_FAILURE,
-    ConnectionNotAllowed = SOCKS5_REPLY_CONNECTION_NOT_ALLOWED,
-    NetworkUnreachable = SOCKS5_REPLY_NETWORK_UNREACHABLE,
-    HostUnreachable = SOCKS5_REPLY_HOST_UNREACHABLE,
-    ConnectionRefused = SOCKS5_REPLY_CONNECTION_REFUSED,
-    TtlExpired = SOCKS5_REPLY_TTL_EXPIRED,
-    CommandNotSupported = SOCKS5_REPLY_COMMAND_NOT_SUPPORTED,
-    AddressTypeNotSupported = SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED,
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(u8)]
-pub enum Command {
-    Connect = SOCKS5_CMD_TCP_CONNECT,
-    Bind = SOCKS5_CMD_TCP_BIND,
-    UdpAssociate = SOCKS5_CMD_UDP_ASSOCIATE,
-}
-
-impl TryFrom<u8> for Command {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            SOCKS5_CMD_TCP_CONNECT => Ok(Command::Connect),
-            SOCKS5_CMD_TCP_BIND => Ok(Command::Bind),
-            SOCKS5_CMD_UDP_ASSOCIATE => Ok(Command::UdpAssociate),
-            _ => Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 command",
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(u8)]
-pub enum AddrType {
-    V4 = SOCKS5_ADDR_TYPE_IPV4,
-    V6 = SOCKS5_ADDR_TYPE_IPV6,
-    Domain = SOCKS5_ADDR_TYPE_DOMAIN_NAME,
-}
-
-impl TryFrom<u8> for AddrType {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            SOCKS5_ADDR_TYPE_IPV4 => Ok(AddrType::V4),
-            SOCKS5_ADDR_TYPE_IPV6 => Ok(AddrType::V6),
-            SOCKS5_ADDR_TYPE_DOMAIN_NAME => Ok(AddrType::Domain),
-            _ => Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 address type",
-            )),
-        }
-    }
-}
+#[cfg(test)]
+mod tests;
