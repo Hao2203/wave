@@ -1,16 +1,28 @@
 #[allow(unused_imports)]
 use super::{types::*, *};
 
+const HANDSHAKE_DATA: &[u8] = &[0x5, 0x1, 0x00];
+
+const HANDSHAKE_RESPONSE: &[u8] = &[0x5, 0x0];
+
+const CONNECT_DATA: &[u8] = &[
+    0x05, 0x01, 0x00, 0x03, 0x05, b't', b'e', b'.', b's', b't', 0x00, 0x50,
+];
+
+const CONNECT_RESPONSE: &[u8] = &[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 77];
+
+const REQ: &[u8] = b"GET / HTTP/1.1\r\n";
+
+const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
+
 #[test]
 fn encode_decode() {
-    let mut socks5 = Socks5Proxy::new();
+    let mut socks5 = Socks5Proxy::new("127.0.0.1:77".parse().unwrap());
 
-    socks5.input(Input::Receive(Receive {
-        proto: Protocol::Tcp,
-        local: "127.0.0.1:77".parse().unwrap(),
-        data: Bytes::from_static(HANDSHAKE_DATA),
-        source: "127.0.0.1:88".parse().unwrap(),
-    }));
+    socks5.input(Input::new_tcp(
+        "127.0.0.1:88".parse().unwrap(),
+        Bytes::from_static(HANDSHAKE_DATA),
+    ));
 
     let res = socks5.poll_output().unwrap();
     assert_eq!(
@@ -23,12 +35,10 @@ fn encode_decode() {
         })
     );
 
-    socks5.input(Input::Receive(Receive {
-        proto: Protocol::Tcp,
-        local: "127.0.0.1:77".parse().unwrap(),
-        data: Bytes::from_static(CONNECT_DATA),
-        source: "127.0.0.1:88".parse().unwrap(),
-    }));
+    socks5.input(Input::new_tcp(
+        "127.0.0.1:88".parse().unwrap(),
+        Bytes::from_static(CONNECT_DATA),
+    ));
 
     let res = socks5.poll_output().unwrap();
     if let Output::Connect(res) = res {
@@ -46,12 +56,10 @@ fn encode_decode() {
         panic!()
     };
 
-    socks5.input(Input::Receive(Receive {
-        proto: Protocol::Tcp,
-        local: "127.0.0.1:77".parse().unwrap(),
-        data: Bytes::from_static(REQ),
-        source: "127.0.0.1:88".parse().unwrap(),
-    }));
+    socks5.input(Input::new_tcp(
+        "127.0.0.1:88".parse().unwrap(),
+        Bytes::from_static(REQ),
+    ));
 
     let res = socks5.poll_output().unwrap();
     assert_eq!(
@@ -62,19 +70,21 @@ fn encode_decode() {
             to: "te.st:80".parse().unwrap(),
             data: Bytes::from_static(REQ),
         })
-    )
+    );
+
+    socks5.input(Input::new_tcp(
+        "127.0.0.1:88".parse().unwrap(),
+        Bytes::from_static(RESPONSE),
+    ));
+
+    let res = socks5.poll_output().unwrap();
+    assert_eq!(
+        res,
+        Output::Transmit(Transmit {
+            proto: Protocol::Tcp,
+            local: "127.0.0.1:77".parse().unwrap(),
+            to: "te.st:80".parse().unwrap(),
+            data: Bytes::from_static(RESPONSE),
+        })
+    );
 }
-
-const HANDSHAKE_DATA: &[u8] = &[0x5, 0x1, 0x00];
-
-const HANDSHAKE_RESPONSE: &[u8] = &[0x5, 0x0];
-
-const CONNECT_DATA: &[u8] = &[
-    0x05, 0x01, 0x00, 0x03, 0x05, b't', b'e', b'.', b's', b't', 0x00, 0x50,
-];
-
-const CONNECT_RESPONSE: &[u8] = &[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 77];
-
-const REQ: &[u8] = b"GET / HTTP/1.1\r\n";
-
-// const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
