@@ -1,7 +1,8 @@
 // #![allow(unused_imports)]
 use super::*;
-use crate::{Address, Error, ErrorKind, Result};
+use crate::Address;
 use bytes::Bytes;
+use derive_more::derive::Display;
 use std::{collections::VecDeque, net::SocketAddr};
 use types::*;
 
@@ -49,7 +50,7 @@ impl Socks5 {
         self.relay_server.clone()
     }
 
-    pub fn poll_output(&mut self) -> Result<Output> {
+    pub fn poll_output(&mut self) -> Result<Output, Error> {
         self.recvs
             .pop_front()
             .map(|input| self.process_input(input))
@@ -60,7 +61,7 @@ impl Socks5 {
         self.recvs.push_back(input);
     }
 
-    fn process_input(&mut self, mut input: Input) -> Result<Output> {
+    fn process_input(&mut self, mut input: Input) -> Result<Output, Error> {
         match &self.status {
             Status::Handshake => {
                 let request = codec::decode_consult_request(&mut input.data)?;
@@ -68,10 +69,7 @@ impl Socks5 {
                 let to = if let Address::Ip(ip) = input.source {
                     ip
                 } else {
-                    return Err(Error::message(
-                        ErrorKind::UnSupportedProxyProtocol,
-                        "Invalid socks5 request",
-                    ));
+                    return Err(Error::Other("Invalid socks5 request".into()));
                 };
                 let res = Output::Handshake(Handshake {
                     to,
@@ -104,12 +102,11 @@ impl Socks5 {
         }
     }
 
-    fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse> {
+    fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse, Error> {
         if !request.methods.contains(&AuthMethod::None) {
-            return Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 request",
-            ));
+            return Err(Error::UnSupportedMethods {
+                methods: request.methods,
+            });
         }
         Ok(ConsultResponse(AuthMethod::None))
     }
@@ -224,4 +221,30 @@ impl<'a> TcpConnect<'a> {
             }
         }
     }
+}
+
+#[derive(Debug, Display, derive_more::Error)]
+pub enum Error {
+    #[display("Unexpected protocol: {protocol}, source_address: {source_address}")]
+    UnexpectedProtocol {
+        protocol: Protocol,
+        source_address: Address,
+    },
+    #[display("UnSupportedMethod: {methods:?}")]
+    UnSupportedMethods { methods: Vec<AuthMethod> },
+    #[error(ignore)]
+    #[display("Length not enough: {_0}")]
+    LengthNotEnough(usize),
+    #[error(ignore)]
+    #[display("Invalid version: {_0}")]
+    InvalidVersion(u8),
+    #[display("Invalid method: {method}")]
+    InvalidMethod { method: u8 },
+    #[display("Invalid command: {command}")]
+    InvalidCommand { command: u8 },
+    #[display("Invalid address type: {addr_type}")]
+    InvalidAddrType { addr_type: u8 },
+    #[error(ignore)]
+    #[display("Other: {_0}")]
+    Other(String),
 }

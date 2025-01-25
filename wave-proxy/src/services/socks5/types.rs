@@ -1,4 +1,5 @@
-use crate::{Address, Error, ErrorKind, Result};
+use super::Error as Error;
+use crate::Address;
 pub use consts::*;
 
 #[rustfmt::skip]
@@ -46,10 +47,7 @@ impl TryFrom<u8> for AuthMethod {
             SOCKS5_AUTH_METHOD_GSSAPI => Ok(AuthMethod::Gssapi),
             SOCKS5_AUTH_METHOD_PASSWORD => Ok(AuthMethod::Password),
             SOCKS5_AUTH_METHOD_NOT_ACCEPTABLE => Ok(AuthMethod::NotAcceptable),
-            _ => Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 method",
-            )),
+            _ => Err(Error::InvalidMethod { method: value }),
         }
     }
 }
@@ -102,15 +100,12 @@ pub enum Command {
 
 impl TryFrom<u8> for Command {
     type Error = Error;
-    fn try_from(value: u8) -> Result<Self> {
+    fn try_from(value: u8) -> Result<Self, Error> {
         match value {
             SOCKS5_CMD_TCP_CONNECT => Ok(Command::Connect),
             SOCKS5_CMD_TCP_BIND => Ok(Command::Bind),
             SOCKS5_CMD_UDP_ASSOCIATE => Ok(Command::UdpAssociate),
-            _ => Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 command",
-            )),
+            _ => Err(Error::InvalidCommand { command: value }),
         }
     }
 }
@@ -125,15 +120,12 @@ pub enum AddrType {
 
 impl TryFrom<u8> for AddrType {
     type Error = Error;
-    fn try_from(value: u8) -> Result<Self> {
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             SOCKS5_ADDR_TYPE_IPV4 => Ok(AddrType::V4),
             SOCKS5_ADDR_TYPE_IPV6 => Ok(AddrType::V6),
             SOCKS5_ADDR_TYPE_DOMAIN_NAME => Ok(AddrType::Domain),
-            _ => Err(Error::message(
-                ErrorKind::UnSupportedProxyProtocol,
-                "Invalid socks5 address type",
-            )),
+            _ => Err(Error::InvalidAddrType { addr_type: value }),
         }
     }
 }

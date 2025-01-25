@@ -131,10 +131,11 @@ pub enum ProxyStatus<'a> {
     Continue(Incoming<'a>),
 }
 
-#[derive(Debug, From, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Display, From, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Address {
     #[from]
     Ip(SocketAddr),
+    #[display("{_0}:{_1}")]
     Domain(Arc<str>, u16),
 }
 
