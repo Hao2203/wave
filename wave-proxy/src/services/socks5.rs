@@ -11,7 +11,7 @@ mod tests;
 pub mod types;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Socks5Proxy {
+pub struct Socks5 {
     recvs: VecDeque<Input>,
     status: Status,
     tcp_bind: SocketAddr,
@@ -21,16 +21,16 @@ pub struct Socks5Proxy {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Status {
-    Consulting,
+    Handshake,
     Connecting,
-    Relaying { target: Address },
+    Relay { target: Address },
 }
 
-impl Socks5Proxy {
+impl Socks5 {
     pub fn new(tcp_bind: SocketAddr) -> Self {
-        Socks5Proxy {
+        Socks5 {
             recvs: VecDeque::new(),
-            status: Status::Consulting,
+            status: Status::Handshake,
             tcp_bind,
             udp_bind: None,
             relay_server: None,
@@ -62,13 +62,19 @@ impl Socks5Proxy {
 
     fn process_input(&mut self, mut input: Input) -> Result<Output> {
         match &self.status {
-            Status::Consulting => {
+            Status::Handshake => {
                 let request = codec::decode_consult_request(&mut input.data)?;
                 let res = self.process_consult_request(request)?;
-                let res = Output::Transmit(Transmit {
-                    proto: Protocol::Tcp,
-                    local: self.tcp_bind,
-                    to: input.source,
+                let to = if let Address::Ip(ip) = input.source {
+                    ip
+                } else {
+                    return Err(Error::message(
+                        ErrorKind::UnSupportedProxyProtocol,
+                        "Invalid socks5 request",
+                    ));
+                };
+                let res = Output::Handshake(Handshake {
+                    to,
                     data: codec::encode_consult_response(res),
                 });
                 self.set_status(Status::Connecting);
@@ -77,18 +83,18 @@ impl Socks5Proxy {
             Status::Connecting => {
                 let request = codec::decode_connect_request(&mut input.data)?;
                 let bind_address = self.tcp_bind;
-                let connect = Connect {
+                let connect = TcpConnect {
                     proxy: self,
-                    protocol: Protocol::Tcp,
                     target: request.target,
                     source: input.source,
                     bind_address,
+                    data: (),
                 };
-                Ok(Output::Connect(connect))
+                Ok(Output::TcpConnect(connect))
             }
-            Status::Relaying { target } => {
+            Status::Relay { target } => {
                 let transmit = Transmit {
-                    proto: input.protocol(),
+                    proto: input.protocol,
                     local: self.tcp_bind(),
                     to: target.clone(),
                     data: input.data,
@@ -115,7 +121,7 @@ impl Socks5Proxy {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Input {
-    protocol: Protocol,
+    pub protocol: Protocol,
     pub source: Address,
     pub data: Bytes,
 }
@@ -144,17 +150,20 @@ impl Input {
     pub fn is_udp(&self) -> bool {
         matches!(self.protocol, Protocol::Udp)
     }
-
-    pub fn protocol(&self) -> Protocol {
-        self.protocol
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Output<'a> {
     Pending,
+    Handshake(Handshake),
     Transmit(Transmit),
-    Connect(Connect<'a>),
+    TcpConnect(TcpConnect<'a>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Handshake {
+    pub to: SocketAddr,
+    pub data: Bytes,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -166,48 +175,53 @@ pub struct Transmit {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Connect<'a> {
-    proxy: &'a mut Socks5Proxy,
-    pub protocol: Protocol,
+pub struct TcpConnect<'a, T = ()> {
+    proxy: &'a mut Socks5,
     pub target: Address,
     pub source: Address,
     pub bind_address: SocketAddr,
+    pub data: T,
 }
 
-impl Connect<'_> {
-    pub fn target(&self) -> &Address {
-        &self.target
+impl<'a> TcpConnect<'a> {
+    pub fn connected_success(self) -> TcpConnect<'a, Bytes> {
+        self.connect_with_status(ConnectedStatus::Succeeded)
     }
 
-    pub fn connected_success(self) -> Transmit {
-        let res = ConnectResponse {
-            status: ConnectedStatus::Succeeded,
-            bind_address: self.bind_address.into(),
-        };
-        let data = codec::encode_connect_response(res);
-        self.proxy.set_status(Status::Relaying {
-            target: self.target,
-        });
-        Transmit {
-            proto: Protocol::Tcp,
-            local: self.bind_address,
-            to: self.source,
-            data,
-        }
-    }
-
-    pub fn connected_failed(self, status: ConnectedStatus) -> Transmit {
-        let res = ConnectResponse {
-            status,
-            bind_address: self.target,
-        };
-        let data = codec::encode_connect_response(res);
-        self.proxy.set_status(Status::Consulting);
-        Transmit {
-            proto: Protocol::Tcp,
-            local: self.bind_address,
-            to: self.source,
-            data,
+    pub fn connect_with_status(self, status: ConnectedStatus) -> TcpConnect<'a, Bytes> {
+        match status {
+            ConnectedStatus::Succeeded => {
+                let res = ConnectResponse {
+                    status: ConnectedStatus::Succeeded,
+                    bind_address: self.bind_address.into(),
+                };
+                let data = codec::encode_connect_response(res);
+                self.proxy.set_status(Status::Relay {
+                    target: self.target.clone(),
+                });
+                TcpConnect {
+                    proxy: self.proxy,
+                    target: self.target,
+                    source: self.source,
+                    bind_address: self.bind_address,
+                    data,
+                }
+            }
+            _ => {
+                let res = ConnectResponse {
+                    status,
+                    bind_address: self.target.clone(),
+                };
+                let data = codec::encode_connect_response(res);
+                self.proxy.set_status(Status::Handshake);
+                TcpConnect {
+                    proxy: self.proxy,
+                    target: self.target,
+                    source: self.source,
+                    bind_address: self.bind_address,
+                    data,
+                }
+            }
         }
     }
 }
