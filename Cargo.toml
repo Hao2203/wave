@@ -1,5 +1,5 @@
 [workspace]
-members = ["wave", "wave-account", "wave-core", "wave-proxy", "wave-session"]
+members = ["wave", "wave-core", "wave-proxy"]
 resolver = "2"
 
 [workspace.dependencies]
