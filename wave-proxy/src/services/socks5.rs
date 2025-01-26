@@ -1,8 +1,8 @@
 // #![allow(unused_imports)]
 use super::*;
-use crate::Address;
+use crate::{Address, AddressFromStrErr};
 use bytes::Bytes;
-use derive_more::derive::Display;
+use derive_more::derive::{Display, From};
 use std::{collections::VecDeque, net::SocketAddr};
 use types::*;
 
@@ -69,10 +69,14 @@ impl Socks5 {
                 let to = if let Address::Ip(ip) = input.source {
                     ip
                 } else {
-                    return Err(Error::Other("Invalid socks5 request".into()));
+                    return Err(Error::UnexpectedAddressType {
+                        address: input.source,
+                    });
                 };
-                let res = Output::Handshake(Handshake {
-                    to,
+                let res = Output::Handshake(Transmit {
+                    proto: Protocol::Tcp,
+                    local: self.tcp_bind(),
+                    to: Address::Ip(to),
                     data: codec::encode_consult_response(res),
                 });
                 self.set_status(Status::Connecting);
@@ -80,13 +84,17 @@ impl Socks5 {
             }
             Status::Connecting => {
                 let request = codec::decode_connect_request(&mut input.data)?;
-                let bind_address = self.tcp_bind;
+                let source = if let Address::Ip(ip) = input.source {
+                    ip
+                } else {
+                    return Err(Error::UnexpectedAddressType {
+                        address: input.source,
+                    });
+                };
                 let connect = TcpConnect {
                     proxy: self,
                     target: request.target,
-                    source: input.source,
-                    bind_address,
-                    data: (),
+                    source,
                 };
                 Ok(Output::TcpConnect(connect))
             }
@@ -97,7 +105,7 @@ impl Socks5 {
                     to: target.clone(),
                     data: input.data,
                 };
-                Ok(Output::Transmit(transmit))
+                Ok(Output::Relay(transmit))
             }
         }
     }
@@ -152,18 +160,12 @@ impl Input {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Output<'a> {
     Pending,
-    Handshake(Handshake),
-    Transmit(Transmit),
+    Handshake(Transmit),
     TcpConnect(TcpConnect<'a>),
+    Relay(Transmit),
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Handshake {
-    pub to: SocketAddr,
-    pub data: Bytes,
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Transmit {
     pub proto: Protocol,
     pub local: SocketAddr,
@@ -172,79 +174,76 @@ pub struct Transmit {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct TcpConnect<'a, T = ()> {
+pub struct TcpConnect<'a> {
     proxy: &'a mut Socks5,
-    pub target: Address,
-    pub source: Address,
-    pub bind_address: SocketAddr,
-    pub data: T,
+    target: Address,
+    source: SocketAddr,
 }
 
-impl<'a> TcpConnect<'a> {
-    pub fn connected_success(self) -> TcpConnect<'a, Bytes> {
+impl TcpConnect<'_> {
+    pub fn target(&self) -> Address {
+        self.target.clone()
+    }
+
+    pub fn connected_success(&mut self) -> Transmit {
         self.connect_with_status(ConnectedStatus::Succeeded)
     }
 
-    pub fn connect_with_status(self, status: ConnectedStatus) -> TcpConnect<'a, Bytes> {
-        match status {
+    pub fn connect_with_status(&mut self, status: ConnectedStatus) -> Transmit {
+        let data = match status {
             ConnectedStatus::Succeeded => {
                 let res = ConnectResponse {
                     status: ConnectedStatus::Succeeded,
-                    bind_address: self.bind_address.into(),
+                    bind_address: self.proxy.tcp_bind().into(),
                 };
                 let data = codec::encode_connect_response(res);
                 self.proxy.set_status(Status::Relay {
-                    target: self.target.clone(),
+                    target: self.target(),
                 });
-                TcpConnect {
-                    proxy: self.proxy,
-                    target: self.target,
-                    source: self.source,
-                    bind_address: self.bind_address,
-                    data,
-                }
+                data
             }
             _ => {
                 let res = ConnectResponse {
                     status,
-                    bind_address: self.target.clone(),
+                    bind_address: self.target(),
                 };
                 let data = codec::encode_connect_response(res);
                 self.proxy.set_status(Status::Handshake);
-                TcpConnect {
-                    proxy: self.proxy,
-                    target: self.target,
-                    source: self.source,
-                    bind_address: self.bind_address,
-                    data,
-                }
+                data
             }
+        };
+        Transmit {
+            proto: Protocol::Tcp,
+            local: self.proxy.tcp_bind(),
+            to: Address::Ip(self.source),
+            data,
         }
     }
 }
 
-#[derive(Debug, Display, derive_more::Error)]
+#[derive(Debug, Display, From, derive_more::Error)]
 pub enum Error {
     #[display("Unexpected protocol: {protocol}, source_address: {source_address}")]
     UnexpectedProtocol {
         protocol: Protocol,
         source_address: Address,
     },
+    #[display("Unexpected address type: {address}")]
+    UnexpectedAddressType { address: Address },
     #[display("UnSupportedMethod: {methods:?}")]
     UnSupportedMethods { methods: Vec<AuthMethod> },
-    #[error(ignore)]
-    #[display("Length not enough: {_0}")]
-    LengthNotEnough(usize),
-    #[error(ignore)]
-    #[display("Invalid version: {_0}")]
-    InvalidVersion(u8),
+    #[display("Length not enough: {len}")]
+    LengthNotEnough { len: usize },
+    #[display("Invalid version: {version}")]
+    InvalidVersion { version: u8 },
     #[display("Invalid method: {method}")]
     InvalidMethod { method: u8 },
     #[display("Invalid command: {command}")]
     InvalidCommand { command: u8 },
     #[display("Invalid address type: {addr_type}")]
     InvalidAddrType { addr_type: u8 },
-    #[error(ignore)]
-    #[display("Other: {_0}")]
-    Other(String),
+    #[from]
+    FromUtf8Error(std::string::FromUtf8Error),
+    #[from]
+    AddressParseError(AddressFromStrErr),
 }

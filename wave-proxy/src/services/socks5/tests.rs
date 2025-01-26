@@ -16,7 +16,7 @@ const REQ: &[u8] = b"GET / HTTP/1.1\r\n";
 const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 
 #[test]
-fn encode_decode() {
+fn test1() {
     let mut socks5 = Socks5::new("127.0.0.1:77".parse().unwrap());
 
     socks5.input(Input::new_tcp(
@@ -27,7 +27,9 @@ fn encode_decode() {
     let res = socks5.poll_output().unwrap();
     assert_eq!(
         res,
-        Output::Handshake(Handshake {
+        Output::Handshake(Transmit {
+            proto: Protocol::Tcp,
+            local: "127.0.0.1:77".parse().unwrap(),
             to: "127.0.0.1:88".parse().unwrap(),
             data: Bytes::from_static(HANDSHAKE_RESPONSE),
         })
@@ -39,9 +41,17 @@ fn encode_decode() {
     ));
 
     let res = socks5.poll_output().unwrap();
-    if let Output::TcpConnect(res) = res {
+    if let Output::TcpConnect(mut res) = res {
         let res = res.connected_success();
-        assert_eq!(res.data, Bytes::from_static(CONNECT_RESPONSE),)
+        assert_eq!(
+            res,
+            Transmit {
+                proto: Protocol::Tcp,
+                local: "127.0.0.1:77".parse().unwrap(),
+                to: "127.0.0.1:88".parse().unwrap(),
+                data: Bytes::from_static(CONNECT_RESPONSE),
+            }
+        )
     } else {
         panic!()
     };
@@ -54,7 +64,7 @@ fn encode_decode() {
     let res = socks5.poll_output().unwrap();
     assert_eq!(
         res,
-        Output::Transmit(Transmit {
+        Output::Relay(Transmit {
             proto: Protocol::Tcp,
             local: "127.0.0.1:77".parse().unwrap(),
             to: "te.st:80".parse().unwrap(),
@@ -70,7 +80,7 @@ fn encode_decode() {
     let res = socks5.poll_output().unwrap();
     assert_eq!(
         res,
-        Output::Transmit(Transmit {
+        Output::Relay(Transmit {
             proto: Protocol::Tcp,
             local: "127.0.0.1:77".parse().unwrap(),
             to: "te.st:80".parse().unwrap(),
