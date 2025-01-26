@@ -4265,7 +4265,11 @@ dependencies = [
 name = "wave"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "derive_more 1.0.0",
+ "tokio",
  "wave-core",
+ "wave-proxy",
 ]
 
 [[package]]
@@ -4288,7 +4292,6 @@ dependencies = [
 name = "wave-proxy"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "bytes",
  "derive_more 1.0.0",
  "reqwest",
