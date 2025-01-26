@@ -4,15 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fast-socks5 = "0.10"
-
-# async tools
-futures-lite = { workspace = true }
-tokio = { workspace = true, features = ["rt", "net", "io-util"] }
-async-channel = { workspace = true }
-async-trait = { workspace = true }
-pin-project = { workspace = true }
-
 derive_more = { workspace = true, features = ["from", "display", "error"] }
 anyhow = { workspace = true }
 
@@ -22,7 +13,4 @@ tracing = { workspace = true }
 bytes = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["full"] }
-axum = { version = "0.8", features = [] }
 reqwest = { version = "0.12", features = ["rustls-tls", "socks"] }
-# smol-macros = "0.1"

@@ -50,6 +50,10 @@ impl Socks5 {
         self.relay_server.clone()
     }
 
+    pub fn status(&self) -> &Status {
+        &self.status
+    }
+
     pub fn poll_output(&mut self) -> Result<Output, Error> {
         self.recvs
             .pop_front()

@@ -1,4 +1,4 @@
-use super::Error as Error;
+use super::Error;
 use crate::Address;
 pub use consts::*;
 
