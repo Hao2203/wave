@@ -21,7 +21,7 @@ fn test1() {
 
     socks5.input(Input::new_tcp(
         "127.0.0.1:88".parse().unwrap(),
-        Bytes::from_static(HANDSHAKE_DATA),
+        HANDSHAKE_DATA.into(),
     ));
 
     let res = socks5.poll_output().unwrap();
@@ -37,7 +37,7 @@ fn test1() {
 
     socks5.input(Input::new_tcp(
         "127.0.0.1:88".parse().unwrap(),
-        Bytes::from_static(CONNECT_DATA),
+        Vec::from(CONNECT_DATA),
     ));
 
     let res = socks5.poll_output().unwrap();
@@ -58,7 +58,7 @@ fn test1() {
 
     socks5.input(Input::new_tcp(
         "127.0.0.1:88".parse().unwrap(),
-        Bytes::from_static(REQ),
+        Vec::from(REQ),
     ));
 
     let res = socks5.poll_output().unwrap();
@@ -74,7 +74,7 @@ fn test1() {
 
     socks5.input(Input::new_tcp(
         "127.0.0.1:88".parse().unwrap(),
-        Bytes::from_static(RESPONSE),
+        Vec::from(RESPONSE),
     ));
 
     let res = socks5.poll_output().unwrap();

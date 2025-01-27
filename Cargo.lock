@@ -4267,6 +4267,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_more 1.0.0",
+ "iroh",
  "tokio",
  "wave-core",
  "wave-proxy",

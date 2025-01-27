@@ -62,13 +62,19 @@ impl Socks5 {
     }
 
     pub fn input(&mut self, input: Input) {
+        if let Some(back) = self.recvs.back_mut() {
+            if input.protocol == back.protocol && input.source == back.source {
+                back.data.extend(input.data);
+                return;
+            }
+        }
         self.recvs.push_back(input);
     }
 
-    fn process_input(&mut self, mut input: Input) -> Result<Output, Error> {
+    fn process_input(&mut self, input: Input) -> Result<Output, Error> {
         match &self.status {
             Status::Handshake => {
-                let request = codec::decode_consult_request(&mut input.data)?;
+                let request = codec::decode_consult_request(input.data.as_slice())?;
                 let res = self.process_consult_request(request)?;
                 let to = if let Address::Ip(ip) = input.source {
                     ip
@@ -87,7 +93,7 @@ impl Socks5 {
                 Ok(res)
             }
             Status::Connecting => {
-                let request = codec::decode_connect_request(&mut input.data)?;
+                let request = codec::decode_connect_request(input.data.as_slice())?;
                 let source = if let Address::Ip(ip) = input.source {
                     ip
                 } else {
@@ -107,7 +113,7 @@ impl Socks5 {
                     proto: input.protocol,
                     local: self.tcp_bind(),
                     to: target.clone(),
-                    data: input.data,
+                    data: input.data.into(),
                 };
                 Ok(Output::Relay(transmit))
             }
@@ -132,21 +138,13 @@ impl Socks5 {
 pub struct Input {
     pub protocol: Protocol,
     pub source: Address,
-    pub data: Bytes,
+    pub data: Vec<u8>,
 }
 
 impl Input {
-    pub fn new_tcp(source: Address, data: Bytes) -> Self {
+    pub fn new_tcp(source: Address, data: Vec<u8>) -> Self {
         Input {
             protocol: Protocol::Tcp,
-            source,
-            data,
-        }
-    }
-
-    pub fn new_udp(source: Address, data: Bytes) -> Self {
-        Input {
-            protocol: Protocol::Udp,
             source,
             data,
         }

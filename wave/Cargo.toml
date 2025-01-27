@@ -7,6 +7,7 @@ edition = "2021"
 wave-core = { path = "../wave-core" }
 wave-proxy = { path = "../wave-proxy" }
 
+iroh = { version = "0.31" }
 anyhow = { workspace = true }
 derive_more = { workspace = true, features = ["from", "display", "error"] }
 tokio = { workspace = true, features = ["net"] }

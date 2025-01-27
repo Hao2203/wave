@@ -1,21 +1,23 @@
 use super::{types::*, Error};
 use crate::Address;
-use bytes::{Buf as _, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
-pub fn decode_consult_request(buf: &mut Bytes) -> Result<ConsultRequest, Error> {
-    if buf.len() < 2 {
-        return Err(Error::LengthNotEnough { len: buf.len() });
+pub fn decode_consult_request(mut buf: impl Buf) -> Result<ConsultRequest, Error> {
+    if buf.remaining() < 2 {
+        return Err(Error::LengthNotEnough {
+            len: buf.remaining(),
+        });
     }
     let version = buf.get_u8();
     if version != 5 {
         return Err(Error::InvalidVersion { version });
     }
     let n_methods = buf.get_u8();
-    let methods = buf.split_to(n_methods as usize);
+    let methods = &buf.chunk()[0..n_methods as usize];
     let methods = methods
-        .into_iter()
-        .map(|x| x.try_into())
+        .iter()
+        .map(|x| (*x).try_into())
         .collect::<Result<Vec<_>, Error>>()?;
 
     Ok(ConsultRequest { n_methods, methods })
@@ -31,9 +33,11 @@ pub fn encode_consult_response(response: ConsultResponse) -> Bytes {
 /// |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
 /// |:--:|:---:|:-----:|:----:|:--------:|:--------:|
 /// | 1  |  1  | X'00' |  1   | Variable |    2     |
-pub fn decode_connect_request(buf: &mut Bytes) -> Result<ConnectRequest, Error> {
-    if buf.len() < 4 {
-        return Err(Error::LengthNotEnough { len: buf.len() });
+pub fn decode_connect_request(mut buf: impl Buf) -> Result<ConnectRequest, Error> {
+    if buf.remaining() < 4 {
+        return Err(Error::LengthNotEnough {
+            len: buf.remaining(),
+        });
     }
     let version = buf.get_u8();
     if version != 5 {
@@ -57,12 +61,14 @@ pub fn encode_connect_response(response: ConnectResponse) -> Bytes {
     buf.freeze()
 }
 
-pub fn decode_address(buf: &mut Bytes) -> Result<(AddrType, Address), Error> {
+pub fn decode_address(mut buf: impl Buf) -> Result<(AddrType, Address), Error> {
     let addr_type = buf.get_u8().try_into()?;
     let address = match addr_type {
         AddrType::V4 => {
-            if buf.len() < 8 {
-                return Err(Error::LengthNotEnough { len: buf.len() });
+            if buf.remaining() < 8 {
+                return Err(Error::LengthNotEnough {
+                    len: buf.remaining(),
+                });
             }
             Address::Ip(SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::new(buf.get_u8(), buf.get_u8(), buf.get_u8(), buf.get_u8()),
@@ -70,8 +76,10 @@ pub fn decode_address(buf: &mut Bytes) -> Result<(AddrType, Address), Error> {
             )))
         }
         AddrType::V6 => {
-            if buf.len() < 18 {
-                return Err(Error::LengthNotEnough { len: buf.len() });
+            if buf.remaining() < 18 {
+                return Err(Error::LengthNotEnough {
+                    len: buf.remaining(),
+                });
             }
             Address::Ip(SocketAddr::V6(SocketAddrV6::new(
                 Ipv6Addr::new(
@@ -91,10 +99,12 @@ pub fn decode_address(buf: &mut Bytes) -> Result<(AddrType, Address), Error> {
         }
         AddrType::Domain => {
             let len = buf.get_u8();
-            if buf.len() < len as usize + 2 {
-                return Err(Error::LengthNotEnough { len: buf.len() });
+            if buf.remaining() < len as usize + 2 {
+                return Err(Error::LengthNotEnough {
+                    len: buf.remaining(),
+                });
             }
-            let domain = buf.split_to(len as usize);
+            let domain = buf.copy_to_bytes(len as usize);
             let domain = String::from_utf8(domain.into())?;
             let port = buf.get_u16();
             let address = format!("{}:{}", domain, port);
