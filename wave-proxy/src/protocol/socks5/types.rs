@@ -1,6 +1,7 @@
 use super::Error;
 use crate::Address;
 pub use consts::*;
+use derive_more::derive::Display;
 
 #[rustfmt::skip]
 pub mod consts {
@@ -77,6 +78,7 @@ pub struct ConnectResponse {
     pub bind_address: Address,
 }
 
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ConnectedStatus {
     Succeeded = SOCKS5_REPLY_SUCCEEDED,

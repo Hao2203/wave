@@ -29,7 +29,7 @@ impl FromStr for Address {
     }
 }
 
-#[derive(Debug, From, Display, derive_more::Error)]
+#[derive(Debug, From, Display, PartialEq, Eq, derive_more::Error)]
 #[error(ignore)]
 pub enum AddressFromStrErr {
     #[from]
