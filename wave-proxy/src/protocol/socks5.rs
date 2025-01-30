@@ -39,7 +39,7 @@ pub enum Event {
     Handshake,
     ConnectToTarget { target: Address },
     Close { reason: Option<Error> },
-    HandleInputFailed { error: Error },
+    Error(Error),
 }
 
 impl Socks5 {
@@ -97,7 +97,7 @@ impl Socks5 {
             }
             Err(Error::LengthNotEnough { .. }) => return 0,
             Err(e) => {
-                self.events.push_back(Event::HandleInputFailed { error: e });
+                self.events.push_back(Event::Error(e));
             }
             _ => (),
         }
@@ -202,12 +202,11 @@ impl Socks5 {
                         bind_address: target.clone(),
                     };
                     let data = codec::encode_connect_response(res);
-                    self.events.push_back(Event::HandleInputFailed {
-                        error: Error::ConnectToTargetFailed {
+                    self.events
+                        .push_back(Event::Error(Error::ConnectToTargetFailed {
                             target: target.clone(),
                             status,
-                        },
-                    });
+                        }));
                     self.set_status(Status::Close);
                     data
                 }
