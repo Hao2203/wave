@@ -1,19 +1,20 @@
 // #![allow(unused_imports)]
 use super::*;
 use crate::{Address, AddressFromStrErr};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use derive_more::derive::{Display, From};
-use std::{borrow::Cow, collections::VecDeque, net::SocketAddr};
+use std::{collections::VecDeque, net::SocketAddr};
 use types::*;
 
 pub mod codec;
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 pub mod types;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Socks5 {
     transmits: VecDeque<Transmit>,
+    events: VecDeque<Event>,
     status: Status,
     tcp_bind: SocketAddr,
     udp_bind: Option<SocketAddr>,
@@ -24,31 +25,29 @@ pub struct Socks5 {
 pub enum Status {
     Init,
     Handshake,
-    Connecting { target: Address },
-    Relay { target: Address },
-    Close { reason: Option<Error> },
-}
-
-pub enum Event<'a> {
-    BufferIncomplete,
-    Handshake,
-    ConnectToTarget {
-        target: Address,
-    },
     Relay {
         target: Address,
-        data: Cow<'a, [u8]>,
+        status: Option<ConnectedStatus>,
+        source: Address,
     },
-    Close {
-        reason: Option<Error>,
-    },
+    Close,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Event {
+    BufferIncomplete,
+    Handshake,
+    ConnectToTarget { target: Address },
+    Close { reason: Option<Error> },
+    HandleInputFailed { error: Error },
 }
 
 impl Socks5 {
     pub fn new(tcp_bind: SocketAddr) -> Self {
         Socks5 {
             transmits: VecDeque::new(),
-            status: Status::Handshake,
+            events: VecDeque::new(),
+            status: Status::Init,
             tcp_bind,
             udp_bind: None,
             relay_server: None,
@@ -71,14 +70,45 @@ impl Socks5 {
         &self.status
     }
 
-    pub fn input<'a>(&mut self, input: Input<'a>) -> Result<Event<'a>, Error> {
-        self.process_input(input)
+    pub fn poll_transmit(&mut self) -> Option<Transmit> {
+        self.transmits.pop_front()
     }
 
-    fn process_input<'a>(&mut self, input: Input<'a>) -> Result<Event<'a>, Error> {
-        let res = match &mut self.status {
+    pub fn poll_event(&mut self) -> Option<Event> {
+        self.events.pop_front()
+    }
+
+    pub fn handle_input(
+        &mut self,
+        protocol: Protocol,
+        source: Address,
+        input: &mut BytesMut,
+    ) -> usize {
+        let len = input.len();
+        let res = self.process_input(Input {
+            protocol,
+            source,
+            data: input,
+        });
+        let len = len - input.len();
+        match res {
+            Ok(Some(transmit)) => {
+                self.transmits.push_back(transmit);
+            }
+            Err(Error::LengthNotEnough { .. }) => return 0,
+            Err(e) => {
+                self.events.push_back(Event::HandleInputFailed { error: e });
+            }
+            _ => (),
+        }
+        len
+    }
+
+    fn process_input(&mut self, input: Input<'_>) -> Result<Option<Transmit>, Error> {
+        let data = input.data.as_ref();
+        match &self.status {
             Status::Init => {
-                let request = codec::decode_consult_request(input.data)?;
+                let request = codec::decode_consult_request(data)?;
                 let res = self.process_consult_request(request)?;
                 let to = if let Address::Ip(ip) = input.source {
                     ip
@@ -94,37 +124,64 @@ impl Socks5 {
                     data: codec::encode_consult_response(res),
                 };
                 self.set_status(Status::Handshake);
-                self.transmits.push_back(res);
-                Ok(Event::Handshake)
+                Ok(Some(res))
             }
             Status::Handshake => {
-                let request = codec::decode_connect_request(input.data)?;
-                self.set_status(Status::Connecting {
+                let request = codec::decode_connect_request(data)?;
+                self.set_status(Status::Relay {
                     target: request.target.clone(),
+                    status: None,
+                    source: input.source,
                 });
-                Ok(Event::ConnectToTarget {
+                self.events.push_back(Event::ConnectToTarget {
                     target: request.target,
-                })
+                });
+                Ok(None)
             }
-            Status::Connecting { target } => Ok(Event::ConnectToTarget {
-                target: target.clone(),
-            }),
-            Status::Relay { target } => Ok(Event::Relay {
-                target: target.clone(),
-                data: Cow::Borrowed(input.data),
-            }),
-            Status::Close { reason } => Ok(Event::Close {
-                reason: reason.take(),
-            }),
-        };
-        if let Err(Error::LengthNotEnough { len: _ }) = res {
-            return Ok(Event::BufferIncomplete);
+            Status::Relay {
+                target,
+                status,
+                source,
+            } => {
+                if status.is_none() {
+                    return Ok(None);
+                }
+                let data = input.data.split().freeze();
+                let to = if input.source == *source {
+                    target.clone()
+                } else {
+                    source.clone()
+                };
+                let transmit = Transmit {
+                    proto: Protocol::Tcp,
+                    local: self.tcp_bind(),
+                    to,
+                    data,
+                };
+                Ok(Some(transmit))
+            }
+            Status::Close => Ok(None),
         }
-        res
     }
 
     pub fn connect_with_status(&mut self, status: ConnectedStatus) {
-        if let Status::Connecting { target } = &self.status {
+        let res = self.connect_with_status_inner(status);
+        if let Some(res) = res {
+            self.transmits.push_back(res);
+        }
+    }
+
+    fn connect_with_status_inner(&mut self, status: ConnectedStatus) -> Option<Transmit> {
+        if let Status::Relay {
+            target,
+            status: this_status,
+            source,
+        } = &self.status
+        {
+            if this_status.is_some() {
+                return None;
+            }
+            let to = source.clone();
             let data = match status {
                 ConnectedStatus::Succeeded => {
                     let res = ConnectResponse {
@@ -134,6 +191,8 @@ impl Socks5 {
                     let data = codec::encode_connect_response(res);
                     self.set_status(Status::Relay {
                         target: target.clone(),
+                        status: Some(ConnectedStatus::Succeeded),
+                        source: source.clone(),
                     });
                     data
                 }
@@ -143,23 +202,25 @@ impl Socks5 {
                         bind_address: target.clone(),
                     };
                     let data = codec::encode_connect_response(res);
-                    self.set_status(Status::Close {
-                        reason: Some(Error::ConnectToTargetFailed {
+                    self.events.push_back(Event::HandleInputFailed {
+                        error: Error::ConnectToTargetFailed {
                             target: target.clone(),
                             status,
-                        }),
+                        },
                     });
+                    self.set_status(Status::Close);
                     data
                 }
             };
             let transmit = Transmit {
                 proto: Protocol::Tcp,
                 local: self.tcp_bind(),
-                to: Address::Ip(self.tcp_bind),
+                to,
                 data,
             };
-            self.transmits.push_back(transmit);
+            return Some(transmit);
         }
+        None
     }
 
     fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse, Error> {
@@ -180,33 +241,7 @@ impl Socks5 {
 pub struct Input<'a> {
     pub protocol: Protocol,
     pub source: Address,
-    pub data: &'a [u8],
-}
-
-impl<'a> Input<'a> {
-    pub fn new_tcp(source: Address, data: &'a [u8]) -> Self {
-        Input {
-            protocol: Protocol::Tcp,
-            source,
-            data,
-        }
-    }
-
-    pub fn is_tcp(&self) -> bool {
-        matches!(self.protocol, Protocol::Tcp)
-    }
-
-    pub fn is_udp(&self) -> bool {
-        matches!(self.protocol, Protocol::Udp)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Output<'a> {
-    Pending,
-    Handshake(Transmit),
-    TcpConnect(TcpConnect<'a>),
-    Relay(Transmit),
+    pub data: &'a mut BytesMut,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -215,54 +250,6 @@ pub struct Transmit {
     pub local: SocketAddr,
     pub to: Address,
     pub data: Bytes,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct TcpConnect<'a> {
-    proxy: &'a mut Socks5,
-    target: Address,
-    source: SocketAddr,
-}
-
-impl TcpConnect<'_> {
-    pub fn target(&self) -> Address {
-        self.target.clone()
-    }
-
-    pub fn connected_success(&mut self) -> Transmit {
-        self.connect_with_status(ConnectedStatus::Succeeded)
-    }
-
-    pub fn connect_with_status(&mut self, status: ConnectedStatus) -> Transmit {
-        let data = match status {
-            ConnectedStatus::Succeeded => {
-                let res = ConnectResponse {
-                    status: ConnectedStatus::Succeeded,
-                    bind_address: self.proxy.tcp_bind().into(),
-                };
-                let data = codec::encode_connect_response(res);
-                self.proxy.set_status(Status::Relay {
-                    target: self.target(),
-                });
-                data
-            }
-            _ => {
-                let res = ConnectResponse {
-                    status,
-                    bind_address: self.target(),
-                };
-                let data = codec::encode_connect_response(res);
-                self.proxy.set_status(Status::Handshake);
-                data
-            }
-        };
-        Transmit {
-            proto: Protocol::Tcp,
-            local: self.proxy.tcp_bind(),
-            to: Address::Ip(self.source),
-            data,
-        }
-    }
 }
 
 #[derive(Debug, Display, From, PartialEq, Eq, derive_more::Error)]

@@ -19,72 +19,79 @@ const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 fn test1() {
     let mut socks5 = Socks5::new("127.0.0.1:77".parse().unwrap());
 
-    socks5.input(Input::new_tcp(
+    socks5.handle_input(
+        Protocol::Tcp,
         "127.0.0.1:88".parse().unwrap(),
-        HANDSHAKE_DATA.into(),
-    ));
+        &mut BytesMut::from(HANDSHAKE_DATA),
+    );
 
-    let res = socks5.poll_output().unwrap();
+    let res = socks5.poll_transmit().unwrap();
     assert_eq!(
         res,
-        Output::Handshake(Transmit {
+        Transmit {
             proto: Protocol::Tcp,
             local: "127.0.0.1:77".parse().unwrap(),
             to: "127.0.0.1:88".parse().unwrap(),
             data: Bytes::from_static(HANDSHAKE_RESPONSE),
-        })
+        }
     );
 
-    socks5.input(Input::new_tcp(
+    socks5.handle_input(
+        Protocol::Tcp,
         "127.0.0.1:88".parse().unwrap(),
-        Vec::from(CONNECT_DATA),
-    ));
+        &mut BytesMut::from(CONNECT_DATA),
+    );
+    let event = socks5.poll_event().unwrap();
+    assert_eq!(
+        event,
+        Event::ConnectToTarget {
+            target: "te.st:80".parse().unwrap(),
+        }
+    );
+    socks5.connect_with_status(ConnectedStatus::Succeeded);
+    let res = socks5.poll_transmit().unwrap();
 
-    let res = socks5.poll_output().unwrap();
-    if let Output::TcpConnect(mut res) = res {
-        let res = res.connected_success();
-        assert_eq!(
-            res,
-            Transmit {
-                proto: Protocol::Tcp,
-                local: "127.0.0.1:77".parse().unwrap(),
-                to: "127.0.0.1:88".parse().unwrap(),
-                data: Bytes::from_static(CONNECT_RESPONSE),
-            }
-        )
-    } else {
-        panic!()
-    };
-
-    socks5.input(Input::new_tcp(
-        "127.0.0.1:88".parse().unwrap(),
-        Vec::from(REQ),
-    ));
-
-    let res = socks5.poll_output().unwrap();
     assert_eq!(
         res,
-        Output::Relay(Transmit {
+        Transmit {
+            proto: Protocol::Tcp,
+            local: "127.0.0.1:77".parse().unwrap(),
+            to: "127.0.0.1:88".parse().unwrap(),
+            data: Bytes::from_static(CONNECT_RESPONSE),
+        }
+    );
+
+    socks5.handle_input(
+        Protocol::Tcp,
+        "127.0.0.1:88".parse().unwrap(),
+        &mut BytesMut::from(REQ),
+    );
+
+    let res = socks5.poll_transmit().unwrap();
+    assert_eq!(
+        res,
+        Transmit {
             proto: Protocol::Tcp,
             local: "127.0.0.1:77".parse().unwrap(),
             to: "te.st:80".parse().unwrap(),
             data: Bytes::from_static(REQ),
-        })
+        }
     );
 
-    socks5.input(Input::new_tcp(
-        "127.0.0.1:88".parse().unwrap(),
-        Vec::from(RESPONSE),
-    ));
+    socks5.handle_input(
+        Protocol::Tcp,
+        "te.st:80".parse().unwrap(),
+        &mut BytesMut::from(RESPONSE),
+    );
 
-    let res = socks5.poll_output().unwrap();
+    let res = socks5.poll_transmit().unwrap();
     assert_eq!(
         res,
-        Output::Relay(Transmit {
+        Transmit {
             proto: Protocol::Tcp,
             local: "127.0.0.1:77".parse().unwrap(),
-            to: "te.st:80".parse().unwrap(),
+            to: "127.0.0.1:88".parse().unwrap(),
             data: Bytes::from_static(RESPONSE),
-        })
+        }
     );
 }
