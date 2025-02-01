@@ -1,9 +1,12 @@
-use super::{types::*, Error};
+use super::{Error, types::*};
 use crate::Address;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::{
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    sync::Arc,
+};
 
-pub fn decode_consult_request(mut buf: impl Buf) -> Result<ConsultRequest, Error> {
+pub fn decode_consult_request(mut buf: impl Buf) -> Result<HandshakeRequest, Error> {
     if buf.remaining() < 2 {
         return Err(Error::LengthNotEnough {
             len: buf.remaining(),
@@ -18,12 +21,12 @@ pub fn decode_consult_request(mut buf: impl Buf) -> Result<ConsultRequest, Error
     let methods = methods
         .iter()
         .map(|x| (*x).try_into())
-        .collect::<Result<Vec<_>, Error>>()?;
+        .collect::<Result<Arc<[_]>, Error>>()?;
 
-    Ok(ConsultRequest { n_methods, methods })
+    Ok(HandshakeRequest { n_methods, methods })
 }
 
-pub fn encode_consult_response(response: ConsultResponse) -> Bytes {
+pub fn encode_consult_response(response: HandshakeResponse) -> Bytes {
     let mut buf = BytesMut::with_capacity(2);
     buf.put_u8(5);
     buf.put_u8(response.0 as u8);

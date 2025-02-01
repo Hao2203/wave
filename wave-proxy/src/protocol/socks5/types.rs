@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::Error;
 use crate::Address;
 pub use consts::*;
@@ -56,9 +58,10 @@ impl TryFrom<u8> for AuthMethod {
 /// |VER | NMETHODS | METHODS  |
 /// |:--:|:--------:|:-------:|
 /// | 1  |    1     | 1 to 255 |
-pub struct ConsultRequest {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandshakeRequest {
     pub n_methods: u8,
-    pub methods: Vec<AuthMethod>,
+    pub methods: Arc<[AuthMethod]>,
 }
 
 /// +----+--------+
@@ -66,7 +69,14 @@ pub struct ConsultRequest {
 /// +----+--------+
 /// | 1  |   1    |
 /// +----+--------+
-pub struct ConsultResponse(pub AuthMethod);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HandshakeResponse(pub AuthMethod);
+
+impl HandshakeResponse {
+    pub fn is_acceptable(&self) -> bool {
+        self.0 != AuthMethod::NotAcceptable
+    }
+}
 
 pub struct ConnectRequest {
     pub command: Command,

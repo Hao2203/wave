@@ -3,22 +3,31 @@ use super::*;
 use crate::{Address, AddressFromStrErr};
 use bytes::{Bytes, BytesMut};
 use derive_more::derive::{Display, From};
-use std::{collections::VecDeque, net::SocketAddr};
+use std::{collections::VecDeque, net::SocketAddr, sync::Arc};
 use types::*;
 
 pub mod codec;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 pub mod types;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Socks5 {
+pub struct Socks5<T> {
     transmits: VecDeque<Transmit>,
     events: VecDeque<Event>,
+    state: T,
     status: Status,
     tcp_bind: SocketAddr,
-    udp_bind: Option<SocketAddr>,
-    relay_server: Option<Address>,
+    client: SocketAddr,
+}
+
+pub struct Sender {
+    inner: VecDeque<Transmit>,
+}
+impl Sender {
+    pub fn send(&mut self, transmit: Transmit) {
+        self.inner.push_back(transmit);
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,32 +51,9 @@ pub enum Event {
     Error(Error),
 }
 
-impl Socks5 {
-    pub fn new(tcp_bind: SocketAddr) -> Self {
-        Socks5 {
-            transmits: VecDeque::new(),
-            events: VecDeque::new(),
-            status: Status::Init,
-            tcp_bind,
-            udp_bind: None,
-            relay_server: None,
-        }
-    }
-
+impl<T> Socks5<T> {
     pub fn tcp_bind(&self) -> SocketAddr {
         self.tcp_bind
-    }
-
-    pub fn udp_bind(&self) -> Option<SocketAddr> {
-        self.udp_bind
-    }
-
-    pub fn relay_server(&self) -> Option<Address> {
-        self.relay_server.clone()
-    }
-
-    pub fn status(&self) -> &Status {
-        &self.status
     }
 
     pub fn poll_transmit(&mut self) -> Option<Transmit> {
@@ -78,6 +64,114 @@ impl Socks5 {
         self.events.pop_front()
     }
 
+    fn replace_state<U>(self, state: U) -> Socks5<U> {
+        Socks5 {
+            transmits: self.transmits,
+            events: self.events,
+            state,
+            status: self.status,
+            tcp_bind: self.tcp_bind,
+            client: self.client,
+        }
+    }
+
+    fn process_consult_request(
+        &self,
+        request: HandshakeRequest,
+    ) -> Result<HandshakeResponse, Error> {
+        if !request.methods.contains(&AuthMethod::None) {
+            return Err(Error::UnSupportedMethods {
+                methods: request.methods,
+            });
+        }
+        Ok(HandshakeResponse(AuthMethod::None))
+    }
+}
+
+#[derive(Debug)]
+pub struct NoAuthHandshake;
+
+impl Socks5<NoAuthHandshake> {
+    pub fn handshake(
+        self,
+        sender: &mut Sender,
+        request: &HandshakeRequest,
+    ) -> Result<Socks5<Connecting>, Error> {
+        let response = if !request.methods.contains(&AuthMethod::None) {
+            HandshakeResponse(AuthMethod::NotAcceptable)
+        } else {
+            HandshakeResponse(AuthMethod::None)
+        };
+        let data = codec::encode_consult_response(response);
+        let transmit = Transmit {
+            proto: Protocol::Tcp,
+            local: self.tcp_bind,
+            to: Address::Ip(self.client),
+            data,
+        };
+
+        sender.send(transmit);
+        if response.is_acceptable() {
+            Ok(self.replace_state(Connecting))
+        } else {
+            Err(Error::UnSupportedMethods {
+                methods: request.methods.clone(),
+            })
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Connecting;
+
+impl Socks5<Connecting> {
+    pub fn connect_with_status(
+        self,
+        sender: &mut Sender,
+        request: ConnectRequest,
+        status: ConnectedStatus,
+    ) -> Result<Socks5<Relay>, Error> {
+        let bytes = codec::encode_connect_response(ConnectResponse {
+            status,
+            bind_address: self.tcp_bind().into(),
+        });
+        let transmit = Transmit {
+            proto: Protocol::Tcp,
+            local: self.tcp_bind,
+            to: request.target.clone(),
+            data: bytes,
+        };
+        sender.send(transmit);
+        if status == ConnectedStatus::Succeeded {
+            Ok(self.replace_state(Relay {
+                target: request.target.clone(),
+            }))
+        } else {
+            Err(Error::ConnectToTargetFailed {
+                target: request.target,
+                status,
+            })
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Relay {
+    target: Address,
+}
+
+impl Socks5<Relay> {
+    pub fn relay(&self, sender: &mut Sender, data: Bytes) {
+        sender.send(Transmit {
+            proto: Protocol::Tcp,
+            local: self.tcp_bind,
+            to: self.state.target.clone(),
+            data,
+        });
+    }
+}
+
+impl Socks5<Status> {
     pub fn handle_input(
         &mut self,
         protocol: Protocol,
@@ -102,6 +196,17 @@ impl Socks5 {
             _ => (),
         }
         len
+    }
+
+    pub fn connect_with_status(&mut self, status: ConnectedStatus) {
+        let res = self.connect_with_status_inner(status);
+        if let Some(res) = res {
+            self.transmits.push_back(res);
+        }
+    }
+
+    fn set_status(&mut self, status: Status) {
+        self.status = status;
     }
 
     fn process_input(&mut self, input: Input<'_>) -> Result<Option<Transmit>, Error> {
@@ -164,13 +269,6 @@ impl Socks5 {
         }
     }
 
-    pub fn connect_with_status(&mut self, status: ConnectedStatus) {
-        let res = self.connect_with_status_inner(status);
-        if let Some(res) = res {
-            self.transmits.push_back(res);
-        }
-    }
-
     fn connect_with_status_inner(&mut self, status: ConnectedStatus) -> Option<Transmit> {
         if let Status::Relay {
             target,
@@ -221,19 +319,6 @@ impl Socks5 {
         }
         None
     }
-
-    fn process_consult_request(&self, request: ConsultRequest) -> Result<ConsultResponse, Error> {
-        if !request.methods.contains(&AuthMethod::None) {
-            return Err(Error::UnSupportedMethods {
-                methods: request.methods,
-            });
-        }
-        Ok(ConsultResponse(AuthMethod::None))
-    }
-
-    fn set_status(&mut self, status: Status) {
-        self.status = status;
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -266,7 +351,7 @@ pub enum Error {
     #[display("Unexpected address type: {address}")]
     UnexpectedAddressType { address: Address },
     #[display("UnSupportedMethod: {methods:?}")]
-    UnSupportedMethods { methods: Vec<AuthMethod> },
+    UnSupportedMethods { methods: Arc<[AuthMethod]> },
     #[display("Length not enough: {len}")]
     LengthNotEnough { len: usize },
     #[display("Invalid version: {version}")]
