@@ -12,4 +12,4 @@ tracing = { workspace = true }
 bytes = { workspace = true }
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["rustls-tls", "socks"] }
+# reqwest = { version = "0.12", features = ["rustls-tls", "socks"] }
