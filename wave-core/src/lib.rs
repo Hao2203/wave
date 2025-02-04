@@ -29,6 +29,12 @@ impl FromStr for NodeId {
     }
 }
 
+impl From<NodeId> for PublicKey {
+    fn from(node_id: NodeId) -> Self {
+        node_id.0
+    }
+}
+
 #[derive(Debug, From, Display, derive_more::Error)]
 pub enum Error {
     NodeIdParsingError(KeyParsingError),

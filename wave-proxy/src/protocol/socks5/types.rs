@@ -1,13 +1,12 @@
-use std::{
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    sync::Arc,
-};
-
 use super::Error;
 use crate::Address;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 pub use consts::*;
 use derive_more::derive::Display;
+use std::{
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    sync::Arc,
+};
 
 #[rustfmt::skip]
 pub mod consts {

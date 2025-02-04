@@ -6,7 +6,6 @@ use derive_more::derive::{Display, From};
 use std::{net::SocketAddr, sync::Arc};
 use types::*;
 
-// pub mod codec;
 #[cfg(test)]
 mod tests;
 pub mod types;
@@ -20,6 +19,7 @@ impl NoAuthHandshake {
     pub fn new(tcp_bind: SocketAddr, client: SocketAddr) -> Self {
         NoAuthHandshake { tcp_bind, client }
     }
+
     pub fn handshake(self, request: HandshakeRequest) -> (Transmit, Result<Connecting, Error>) {
         let response = if !request.methods.iter().any(|x| *x == AuthMethod::None) {
             HandshakeResponse(AuthMethod::NotAcceptable)

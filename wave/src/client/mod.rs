@@ -1,13 +1,16 @@
 #![allow(unused)]
+use crate::ALPN;
 use bytes::BytesMut;
+use futures_lite::FutureExt;
 use iroh::{
     endpoint::{RecvStream, SendStream},
-    Endpoint,
+    Endpoint, NodeId,
 };
 use std::{
     collections::{hash_map::Entry, HashMap},
     future::Future,
     net::SocketAddr,
+    ops::Add,
     pin::pin,
     str::FromStr,
 };
@@ -15,11 +18,17 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
-use wave_core::NodeId;
+use tracing::info;
 use wave_proxy::{
-    protocol::socks5::{types::HandshakeRequest, NoAuthHandshake, Relay, Transmit},
+    protocol::socks5::{
+        types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
+        NoAuthHandshake, Relay, Transmit,
+    },
     Address,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub struct Client {
     local: SocketAddr,
@@ -31,12 +40,22 @@ impl Client {
     pub async fn run(self) -> anyhow::Result<()> {
         loop {
             let (stream, local) = self.listener.accept().await?;
-            let handler = Handler {
-                local,
-                endpoint: self.endpoint.clone(),
-            };
+            let endpoint = self.endpoint.clone();
             tokio::spawn(async move {
-                handler.handle(stream).await.unwrap();
+                let upstream_address = stream
+                    .peer_addr()
+                    .inspect_err(|e| tracing::error!("Get peer address failed: {}", e))
+                    .expect("Get peer address failed");
+                let handler = Handler {
+                    local,
+                    endpoint,
+                    upstream_address,
+                    upstream: Stream::Tcp(stream),
+                    downstream: None,
+                };
+                handler.handle().await.inspect_err(|e| {
+                    tracing::error!("handle incomming error: {}", e);
+                });
             });
         }
     }
@@ -44,74 +63,109 @@ impl Client {
 
 struct Handler {
     local: SocketAddr,
+    upstream_address: SocketAddr,
     endpoint: Endpoint,
+    upstream: Stream,
+    downstream: Option<(Address, Stream)>,
 }
 
 impl Handler {
-    async fn handle(self, mut stream: tokio::net::TcpStream) -> anyhow::Result<()> {
-        let remote = stream.peer_addr().unwrap();
-        let socks5 = NoAuthHandshake::new(self.local, remote);
-        let mut buf = BytesMut::with_capacity(100);
-        stream.read_buf(&mut buf).await.unwrap();
-        let req = HandshakeRequest::decode(&mut buf).unwrap().unwrap();
+    async fn handle(mut self) -> anyhow::Result<()> {
+        let socks5 = NoAuthHandshake::new(self.local, self.upstream_address);
+
+        let mut buf = BytesMut::with_capacity(1024);
+        self.upstream.read_buf(&mut buf).await?;
+        let req = HandshakeRequest::decode(&mut buf)?.unwrap();
         let (transmit, socks5) = socks5.handshake(req);
-        todo!()
+        self.send_transmit(transmit).await?;
+
+        self.upstream.read_buf(&mut buf).await?;
+
+        let req = ConnectRequest::decode(&mut buf)?.unwrap();
+        info!("Try to connect to {}", req.target);
+        let mut socks5 = match self.downstream(req.target.clone()).await {
+            Ok(stream) => {
+                let (transmit, socks5) = socks5?.connect(req, ConnectedStatus::Succeeded);
+                self.send_transmit(transmit).await?;
+                Ok(socks5?)
+            }
+            Err(e) => {
+                let (transmit, socks5) = socks5?.connect(req, ConnectedStatus::HostUnreachable);
+                self.send_transmit(transmit).await?;
+                Err(e)
+            }
+        }?;
+
+        buf.clear();
+        buf.reserve(8 * 1024);
+        let mut buf2 = BytesMut::with_capacity(8 * 1024);
+        loop {
+            if let Some((addr, stream)) = self.downstream.as_mut() {
+                let (addr, data) = async {
+                    stream.read_buf(&mut buf).await?;
+                    anyhow::Ok((addr.clone(), buf.split().freeze()))
+                }
+                .race(async {
+                    self.upstream.read_buf(&mut buf2).await?;
+                    Ok((self.upstream_address.into(), buf2.split().freeze()))
+                })
+                .await?;
+                let transmit = socks5.relay(addr, data);
+                self.send_transmit(transmit).await?;
+            }
+        }
     }
 
-    async fn handle_transmit(&self, transmit: Transmit) -> anyhow::Result<()> {
-        todo!()
+    async fn downstream(&mut self, addr: Address) -> anyhow::Result<&mut Stream> {
+        let stream = match &addr {
+            Address::Ip(ip) => {
+                let stream = TcpStream::connect(ip).await?;
+                Stream::Tcp(stream)
+            }
+            Address::Domain(domain, port) => match NodeId::from_str(domain) {
+                Ok(node_id) => {
+                    let conn = self.endpoint.connect(node_id, ALPN).await?;
+                    let stream = conn.open_bi().await?;
+                    Stream::Iroh(stream.0, stream.1)
+                }
+                Err(_e) => {
+                    let stream = TcpStream::connect((domain.as_ref(), *port)).await?;
+                    Stream::Tcp(stream)
+                }
+            },
+        };
+        let (_, stream) = self.downstream.insert((addr, stream));
+        Ok(stream)
     }
-}
 
-pub struct Transport {
-    local: SocketAddr,
-    endpoint: Endpoint,
-    streams: HashMap<Address, Stream>,
+    async fn connect(&mut self, address: Address) -> anyhow::Result<&mut Stream> {
+        if Address::Ip(self.upstream_address) == address {
+            return Ok(&mut self.upstream);
+        }
+
+        if let Some((addr, stream)) = self.downstream.as_mut() {
+            if *addr == address {
+                return Ok(stream);
+            }
+        }
+        Err(anyhow::anyhow!("downstream address mismatch"))
+    }
+
+    async fn send_transmit(
+        &mut self,
+        Transmit { to, mut data, .. }: Transmit,
+    ) -> anyhow::Result<()> {
+        let stream = self.connect(to).await?;
+
+        stream.write_all_buf(&mut data).await?;
+
+        Ok(())
+    }
 }
 
 pub enum Stream {
     Iroh(SendStream, RecvStream),
     Tcp(TcpStream),
-}
-
-impl Transport {
-    async fn handle(&mut self, Transmit { to, mut data, .. }: Transmit) -> anyhow::Result<()> {
-        let stream = match self.streams.entry(to) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => match entry.key() {
-                Address::Ip(ip) => {
-                    let stream = TcpStream::connect(ip).await?;
-                    entry.insert(Stream::Tcp(stream))
-                }
-                Address::Domain(domain, port) => {
-                    let node_id = NodeId::from_str(domain)?;
-                    todo!()
-                }
-            },
-        };
-        stream.write_all_buf(&mut data).await?;
-
-        Ok(())
-    }
-
-    fn insert(&mut self, address: Address, stream: Stream) {
-        self.streams.insert(address, stream);
-    }
-
-    fn get_stream(&mut self, address: &Address) -> Option<&mut Stream> {
-        self.streams.get_mut(address)
-    }
-
-    async fn get_or_insert(
-        &mut self,
-        address: Address,
-        stream: impl Future<Output = Stream>,
-    ) -> &mut Stream {
-        match self.streams.entry(address) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(stream.await),
-        }
-    }
 }
 
 impl AsyncRead for Stream {

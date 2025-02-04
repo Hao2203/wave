@@ -4,14 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iroh = { version = "0.31" }
+iroh = { workspace = true }
 
-derive_more = { version = "*", features = [
-    "from",
-    "display",
-    "as_ref",
-    "as_mut",
-] }
+derive_more = { workspace = true, features = ["from", "display", "as_ref"] }
 serde = { workspace = true, features = ["derive"] }
 
 anyhow = { workspace = true }

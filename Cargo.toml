@@ -5,14 +5,16 @@ package.rust-version = "1.85"
 package.edition = "2024"
 
 [workspace.dependencies]
+iroh = "0.32"
+
 tokio = "1.42"
 futures = "0.3"
 futures-lite = "2"
-async-trait = "0.1"
+async-trait = "0.1.86"
 async-channel = "2.3"
 pin-project = { version = "1.1" }
 
-bytes = "1.9"
+bytes = "1.10.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
@@ -24,4 +26,4 @@ serde_bytes = "0.11"
 
 chrono = "0.4.38"
 
-derive_more = "1.0.0"
+derive_more = "2.0.1"
