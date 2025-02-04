@@ -6,7 +6,7 @@ use derive_more::derive::{Display, From};
 use std::{net::SocketAddr, sync::Arc};
 use types::*;
 
-pub mod codec;
+// pub mod codec;
 #[cfg(test)]
 mod tests;
 pub mod types;
@@ -26,7 +26,7 @@ impl NoAuthHandshake {
         } else {
             HandshakeResponse(AuthMethod::None)
         };
-        let data = codec::encode_consult_response(response);
+        let data = response.encode();
         let transmit = Transmit {
             proto: Protocol::Tcp,
             local: self.tcp_bind,
@@ -60,10 +60,11 @@ impl Connecting {
         status: ConnectedStatus,
     ) -> (Transmit, Result<Relay, Error>) {
         let target = request.target;
-        let bytes = codec::encode_connect_response(ConnectResponse {
+        let bytes = ConnectResponse {
             status,
             bind_address: self.tcp_bind.into(),
-        });
+        }
+        .encode();
         let transmit = Transmit {
             proto: Protocol::Tcp,
             local: self.tcp_bind,

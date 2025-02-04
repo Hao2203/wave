@@ -17,7 +17,7 @@ use tokio::{
 };
 use wave_core::NodeId;
 use wave_proxy::{
-    protocol::socks5::{codec, NoAuthHandshake, Relay, Transmit},
+    protocol::socks5::{types::HandshakeRequest, NoAuthHandshake, Relay, Transmit},
     Address,
 };
 
@@ -53,7 +53,7 @@ impl Handler {
         let socks5 = NoAuthHandshake::new(self.local, remote);
         let mut buf = BytesMut::with_capacity(100);
         stream.read_buf(&mut buf).await.unwrap();
-        let req = codec::decode_handshake_request(&mut buf).unwrap().unwrap();
+        let req = HandshakeRequest::decode(&mut buf).unwrap().unwrap();
         let (transmit, socks5) = socks5.handshake(req);
         todo!()
     }
