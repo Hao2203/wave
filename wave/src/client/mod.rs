@@ -1,16 +1,21 @@
+#![allow(unused)]
+use bytes::BytesMut;
 use iroh::{
     endpoint::{RecvStream, SendStream},
     Endpoint,
 };
 use std::{
     collections::{hash_map::Entry, HashMap},
+    future::Future,
     net::SocketAddr,
     pin::pin,
+    str::FromStr,
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
+use wave_core::NodeId;
 use wave_proxy::{
     protocol::socks5::{codec, NoAuthHandshake, Relay, Transmit},
     Address,
@@ -46,9 +51,9 @@ impl Handler {
     async fn handle(self, mut stream: tokio::net::TcpStream) -> anyhow::Result<()> {
         let remote = stream.peer_addr().unwrap();
         let socks5 = NoAuthHandshake::new(self.local, remote);
-        let mut buf = Vec::with_capacity(100);
+        let mut buf = BytesMut::with_capacity(100);
         stream.read_buf(&mut buf).await.unwrap();
-        let req = codec::decode_consult_request(&mut buf.as_slice()).unwrap();
+        let req = codec::decode_handshake_request(&mut buf).unwrap().unwrap();
         let (transmit, socks5) = socks5.handshake(req);
         todo!()
     }
@@ -79,6 +84,7 @@ impl Transport {
                     entry.insert(Stream::Tcp(stream))
                 }
                 Address::Domain(domain, port) => {
+                    let node_id = NodeId::from_str(domain)?;
                     todo!()
                 }
             },
@@ -86,6 +92,25 @@ impl Transport {
         stream.write_all_buf(&mut data).await?;
 
         Ok(())
+    }
+
+    fn insert(&mut self, address: Address, stream: Stream) {
+        self.streams.insert(address, stream);
+    }
+
+    fn get_stream(&mut self, address: &Address) -> Option<&mut Stream> {
+        self.streams.get_mut(address)
+    }
+
+    async fn get_or_insert(
+        &mut self,
+        address: Address,
+        stream: impl Future<Output = Stream>,
+    ) -> &mut Stream {
+        match self.streams.entry(address) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(stream.await),
+        }
     }
 }
 

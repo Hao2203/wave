@@ -1,3 +1,5 @@
+use bytes::BytesMut;
+
 #[allow(unused_imports)]
 use super::{types::*, *};
 
@@ -22,7 +24,9 @@ fn test1() {
         "127.0.0.1:88".parse().unwrap(),
     );
 
-    let req = codec::decode_consult_request(HANDSHAKE_DATA).unwrap();
+    let req = codec::decode_handshake_request(&mut BytesMut::from(HANDSHAKE_DATA))
+        .unwrap()
+        .unwrap();
 
     let (transmit, socks5) = socks5.handshake(req);
 
@@ -33,7 +37,9 @@ fn test1() {
         data: Bytes::from_static(HANDSHAKE_RESPONSE),
     });
 
-    let request = codec::decode_connect_request(CONNECT_DATA).unwrap();
+    let request = codec::decode_connect_request(&mut BytesMut::from(CONNECT_DATA))
+        .unwrap()
+        .unwrap();
     let status = ConnectedStatus::Succeeded;
     let (transmit, socks5) = socks5.unwrap().connect(request, status);
     assert_eq!(transmit, Transmit {

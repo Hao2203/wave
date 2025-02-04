@@ -21,7 +21,7 @@ impl NoAuthHandshake {
         NoAuthHandshake { tcp_bind, client }
     }
     pub fn handshake(self, request: HandshakeRequest) -> (Transmit, Result<Connecting, Error>) {
-        let response = if !request.methods.contains(&AuthMethod::None) {
+        let response = if !request.methods.iter().any(|x| *x == AuthMethod::None) {
             HandshakeResponse(AuthMethod::NotAcceptable)
         } else {
             HandshakeResponse(AuthMethod::None)
@@ -41,7 +41,7 @@ impl NoAuthHandshake {
             })
         } else {
             Err(Error::UnSupportedMethods {
-                methods: request.methods.clone(),
+                methods: request.methods,
             })
         };
         (transmit, res)
@@ -130,8 +130,6 @@ pub enum Error {
     UnexpectedAddressType { address: Address },
     #[display("UnSupportedMethod: {methods:?}")]
     UnSupportedMethods { methods: Arc<[AuthMethod]> },
-    #[display("Length not enough: {len}")]
-    LengthNotEnough { len: usize },
     #[display("Invalid version: {version}")]
     InvalidVersion { version: u8 },
     #[display("Invalid method: {method}")]
