@@ -31,7 +31,6 @@ use wave_proxy::{
 mod tests;
 
 pub struct Client {
-    local: SocketAddr,
     listener: tokio::net::TcpListener,
     endpoint: Endpoint,
 }
