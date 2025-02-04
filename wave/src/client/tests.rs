@@ -24,6 +24,7 @@ async fn test() {
         .await
         .unwrap();
     println!("text: {}", text);
+    task.await.unwrap().unwrap();
 }
 
 // #[tokio::test]

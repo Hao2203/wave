@@ -1,4 +1,4 @@
-#![allow(unused)]
+// #![allow(unused)]
 use crate::ALPN;
 use bytes::BytesMut;
 use futures_lite::FutureExt;
@@ -6,14 +6,7 @@ use iroh::{
     endpoint::{RecvStream, SendStream},
     Endpoint, NodeId,
 };
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    future::Future,
-    net::SocketAddr,
-    ops::Add,
-    pin::pin,
-    str::FromStr,
-};
+use std::{net::SocketAddr, pin::pin, str::FromStr};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
@@ -22,7 +15,7 @@ use tracing::info;
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
-        NoAuthHandshake, Relay, Transmit,
+        NoAuthHandshake, Transmit,
     },
     Address,
 };
@@ -52,9 +45,13 @@ impl Client {
                     upstream: Stream::Tcp(stream),
                     downstream: None,
                 };
-                handler.handle().await.inspect_err(|e| {
-                    tracing::error!("handle incomming error: {}", e);
-                });
+                handler
+                    .handle()
+                    .await
+                    .inspect_err(|e| {
+                        tracing::error!("handle incomming error: {}", e);
+                    })
+                    .expect("handle incomming failed");
             });
         }
     }
@@ -82,14 +79,14 @@ impl Handler {
 
         let req = ConnectRequest::decode(&mut buf)?.unwrap();
         info!("Try to connect to {}", req.target);
-        let mut socks5 = match self.downstream(req.target.clone()).await {
-            Ok(stream) => {
+        let mut socks5 = match self.set_downstream(req.target.clone()).await {
+            Ok(()) => {
                 let (transmit, socks5) = socks5?.connect(req, ConnectedStatus::Succeeded);
                 self.send_transmit(transmit).await?;
                 Ok(socks5?)
             }
             Err(e) => {
-                let (transmit, socks5) = socks5?.connect(req, ConnectedStatus::HostUnreachable);
+                let (transmit, _) = socks5?.connect(req, ConnectedStatus::HostUnreachable);
                 self.send_transmit(transmit).await?;
                 Err(e)
             }
@@ -115,7 +112,7 @@ impl Handler {
         }
     }
 
-    async fn downstream(&mut self, addr: Address) -> anyhow::Result<&mut Stream> {
+    async fn set_downstream(&mut self, addr: Address) -> anyhow::Result<()> {
         let stream = match &addr {
             Address::Ip(ip) => {
                 let stream = TcpStream::connect(ip).await?;
@@ -133,8 +130,8 @@ impl Handler {
                 }
             },
         };
-        let (_, stream) = self.downstream.insert((addr, stream));
-        Ok(stream)
+        self.downstream = Some((addr, stream));
+        Ok(())
     }
 
     async fn connect(&mut self, address: Address) -> anyhow::Result<&mut Stream> {
