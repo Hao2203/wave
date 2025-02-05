@@ -7,16 +7,21 @@ edition = "2021"
 wave-core = { path = "../wave-core" }
 wave-proxy = { path = "../wave-proxy" }
 
-iroh = { workspace = true }
+iroh = { workspace = true, features = [
+    "discovery-pkarr-dht",
+    "discovery-local-network",
+] }
 derive_more = { workspace = true, features = ["from", "display", "error"] }
 tokio = { workspace = true, features = ["net"] }
 futures-lite = { workspace = true }
 
 bytes = { workspace = true }
 anyhow = { workspace = true }
+rand = { version = "*" }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.19" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
 reqwest = { version = "0.12", features = ["socks"] }
+axum = { version = "0.8.1" }

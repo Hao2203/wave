@@ -1,15 +1,12 @@
 // #![allow(unused)]
-use crate::ALPN;
+use crate::{Stream, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
-use iroh::{
-    endpoint::{RecvStream, SendStream},
-    Endpoint, NodeId,
-};
-use std::{net::SocketAddr, pin::pin, str::FromStr};
+use iroh::{Endpoint, NodeId};
+use std::{net::SocketAddr, str::FromStr};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::TcpStream,
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, ToSocketAddrs},
 };
 use tracing::{debug, info, warn};
 use wave_proxy::{
@@ -29,6 +26,14 @@ pub struct Client {
 }
 
 impl Client {
+    pub async fn new<A: ToSocketAddrs>(
+        bind: A,
+        endpoint: Endpoint,
+    ) -> Result<Self, std::io::Error> {
+        let listener = tokio::net::TcpListener::bind(bind).await?;
+        Ok(Self { listener, endpoint })
+    }
+
     pub async fn run(self) -> anyhow::Result<()> {
         loop {
             let (stream, local) = self.listener.accept().await?;
@@ -178,56 +183,5 @@ impl Handler {
         debug!(address = %to, data_size = data.len(), "Send data to remote endpoint");
 
         Ok(())
-    }
-}
-
-pub enum Stream {
-    Iroh(SendStream, RecvStream),
-    Tcp(TcpStream),
-}
-
-impl AsyncRead for Stream {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        match self.get_mut() {
-            Stream::Iroh(_, recv_stream) => pin!(recv_stream).poll_read(cx, buf),
-            Stream::Tcp(stream) => pin!(stream).poll_read(cx, buf),
-        }
-    }
-}
-
-impl AsyncWrite for Stream {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
-        match self.get_mut() {
-            Stream::Iroh(send_stream, _) => pin!(send_stream).poll_write(cx, buf),
-            Stream::Tcp(stream) => pin!(stream).poll_write(cx, buf),
-        }
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        match self.get_mut() {
-            Stream::Iroh(send_stream, _) => pin!(send_stream).poll_flush(cx),
-            Stream::Tcp(stream) => pin!(stream).poll_flush(cx),
-        }
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        match self.get_mut() {
-            Stream::Iroh(send_stream, _) => pin!(send_stream).poll_shutdown(cx),
-            Stream::Tcp(stream) => pin!(stream).poll_shutdown(cx),
-        }
     }
 }
