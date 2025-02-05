@@ -11,7 +11,7 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
-use tracing::info;
+use tracing::{debug, info, warn};
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
@@ -67,6 +67,8 @@ struct Handler {
 
 impl Handler {
     async fn handle(mut self) -> anyhow::Result<()> {
+        info!("Connect from {}", self.upstream_address);
+
         let socks5 = NoAuthHandshake::new(self.local, self.upstream_address);
 
         let mut buf = BytesMut::with_capacity(1024);
@@ -78,7 +80,8 @@ impl Handler {
         self.upstream.read_buf(&mut buf).await?;
 
         let req = ConnectRequest::decode(&mut buf)?.unwrap();
-        info!("Try to connect to {}", req.target);
+
+        info!(target = %req.target, "Try to connect to {}", req.target);
         let mut socks5 = match self.set_downstream(req.target.clone()).await {
             Ok(()) => {
                 let (transmit, socks5) = socks5?.connect(req, ConnectedStatus::Succeeded);
@@ -86,7 +89,11 @@ impl Handler {
                 Ok(socks5?)
             }
             Err(e) => {
+                let target = req.target.clone();
                 let (transmit, _) = socks5?.connect(req, ConnectedStatus::HostUnreachable);
+
+                warn!(target = %target, "Connect to {} failed: {}", target, e);
+
                 self.send_transmit(transmit).await?;
                 Err(e)
             }
@@ -116,16 +123,29 @@ impl Handler {
         let stream = match &addr {
             Address::Ip(ip) => {
                 let stream = TcpStream::connect(ip).await?;
+
+                info!(
+                    ip = %ip.ip(),
+                    port = %ip.port(),
+                    "Connected to remote endpoint via tcp"
+                );
+
                 Stream::Tcp(stream)
             }
             Address::Domain(domain, port) => match NodeId::from_str(domain) {
                 Ok(node_id) => {
                     let conn = self.endpoint.connect(node_id, ALPN).await?;
                     let stream = conn.open_bi().await?;
+
+                    info!(%node_id, "Connected to remote endpoint via iroh");
+
                     Stream::Iroh(stream.0, stream.1)
                 }
                 Err(_e) => {
                     let stream = TcpStream::connect((domain.as_ref(), *port)).await?;
+
+                    info!(%domain, %port, "Connected to remote endpoint via tcp");
+
                     Stream::Tcp(stream)
                 }
             },
@@ -134,13 +154,13 @@ impl Handler {
         Ok(())
     }
 
-    async fn connect(&mut self, address: Address) -> anyhow::Result<&mut Stream> {
-        if Address::Ip(self.upstream_address) == address {
+    async fn get_stream(&mut self, address: &Address) -> anyhow::Result<&mut Stream> {
+        if Address::Ip(self.upstream_address) == *address {
             return Ok(&mut self.upstream);
         }
 
         if let Some((addr, stream)) = self.downstream.as_mut() {
-            if *addr == address {
+            if addr == address {
                 return Ok(stream);
             }
         }
@@ -151,9 +171,11 @@ impl Handler {
         &mut self,
         Transmit { to, mut data, .. }: Transmit,
     ) -> anyhow::Result<()> {
-        let stream = self.connect(to).await?;
+        let stream = self.get_stream(&to).await?;
 
         stream.write_all_buf(&mut data).await?;
+
+        debug!(address = %to, data_size = data.len(), "Send data to remote endpoint");
 
         Ok(())
     }
