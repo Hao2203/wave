@@ -1,5 +1,4 @@
 use crate::Stream;
-use anyhow::anyhow;
 use iroh::{endpoint::Incoming, Endpoint};
 use std::net::SocketAddr;
 use tracing::info;
@@ -19,11 +18,11 @@ impl Server {
 
     pub async fn run(self) -> anyhow::Result<()> {
         loop {
-            let conn = self
-                .endpoint
-                .accept()
-                .await
-                .ok_or_else(|| anyhow!("Accept connection failed"))?;
+            let conn = if let Some(conn) = self.endpoint.accept().await {
+                conn
+            } else {
+                continue;
+            };
 
             tokio::spawn(async move {
                 Self::handle(conn, self.downstream_peer)

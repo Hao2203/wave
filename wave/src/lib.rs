@@ -1,11 +1,11 @@
-use std::pin::pin;
-
 use iroh::endpoint::{RecvStream, SendStream};
+use std::pin::pin;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
 
+pub mod cli;
 pub mod client;
 pub mod server;
 #[cfg(test)]
