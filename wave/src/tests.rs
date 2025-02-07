@@ -1,5 +1,5 @@
-use crate::{client::Client, server::Server, ALPN};
-use iroh::{Endpoint, NodeId};
+use crate::{client::Client, server::Server, NodeId, ALPN};
+use iroh::Endpoint;
 use reqwest::Proxy;
 use tracing::info;
 
@@ -26,7 +26,7 @@ async fn test() {
             .bind()
             .await
             .unwrap();
-        let node_id = ep.node_id();
+        let node_id = NodeId(ep.node_id());
         tx.send(node_id).unwrap();
 
         info!("node_id: {}", node_id);

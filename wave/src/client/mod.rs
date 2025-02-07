@@ -1,8 +1,8 @@
 // #![allow(unused)]
-use crate::{Stream, ALPN};
+use crate::{NodeId, Stream, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
-use iroh::{Endpoint, NodeId};
+use iroh::Endpoint;
 use std::{net::SocketAddr, str::FromStr};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -139,7 +139,7 @@ impl Handler {
             }
             Address::Domain(domain, port) => match NodeId::from_str(domain) {
                 Ok(node_id) => {
-                    let conn = self.endpoint.connect(node_id, ALPN).await?;
+                    let conn = self.endpoint.connect(node_id.0, ALPN).await?;
                     let stream = conn.open_bi().await?;
 
                     info!(%node_id, "Connected to remote endpoint via iroh");
