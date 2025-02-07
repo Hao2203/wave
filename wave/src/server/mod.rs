@@ -1,15 +1,16 @@
-use crate::Stream;
+use crate::{Stream, WavePacket};
 use iroh::{endpoint::Incoming, Endpoint};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use tokio::io::AsyncReadExt;
 use tracing::info;
 
 pub struct Server {
     endpoint: Endpoint,
-    downstream_peer: SocketAddr,
+    downstream_peer: IpAddr,
 }
 
 impl Server {
-    pub fn new(endpoint: Endpoint, downstream_peer: SocketAddr) -> Self {
+    pub fn new(endpoint: Endpoint, downstream_peer: IpAddr) -> Self {
         Self {
             endpoint,
             downstream_peer,
@@ -35,10 +36,14 @@ impl Server {
         }
     }
 
-    async fn handle(incoming: Incoming, downstream_peer: SocketAddr) -> anyhow::Result<()> {
+    async fn handle(incoming: Incoming, downstream_peer: IpAddr) -> anyhow::Result<()> {
         let remote_addr = incoming.remote_address();
         let local_addr = incoming.local_ip();
-        let (send_stream, recv_stream) = incoming.await?.accept_bi().await?;
+        let (send_stream, mut recv_stream) = incoming.await?.accept_bi().await?;
+        let port = recv_stream.read_u16().await?;
+
+        let wave_packet = WavePacket { port };
+        let downstream_peer = SocketAddr::new(downstream_peer, wave_packet.port);
 
         info!(local = ?local_addr, remote = %remote_addr, "Accept connection");
 

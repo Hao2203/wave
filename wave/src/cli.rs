@@ -1,7 +1,7 @@
 use crate::{client::Client, server::Server, ALPN};
 use clap::{Args, Parser};
 use iroh::Endpoint;
-use std::net::SocketAddr;
+use std::net::IpAddr;
 use tracing::info;
 
 const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
@@ -10,7 +10,7 @@ const CLIENT_ENDPOINT: &str = "127.0.0.1:8181";
 
 const CLIENT_PROXY: &str = "127.0.0.1:8182";
 
-const DOWNSTREAM: &str = "127.0.0.1:8284";
+const DOWNSTREAM: &str = "127.0.0.1";
 
 #[derive(Parser)]
 pub enum Cli {
@@ -56,7 +56,7 @@ fn spawn_client() {
     });
 }
 
-async fn spawn_server(bind: SocketAddr) {
+async fn spawn_server(bind: IpAddr) {
     info!("start server");
     let ep = Endpoint::builder()
         .alpns(vec![ALPN.into()])

@@ -15,6 +15,11 @@ mod tests;
 pub const ALPN: &[u8] = b"wave";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WavePacket {
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub iroh::PublicKey);
 
 impl std::fmt::Display for NodeId {

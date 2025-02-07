@@ -9,7 +9,7 @@ const CLIENT_ENDPOINT: &str = "127.0.0.1:8181";
 
 const CLIENT_PROXY: &str = "127.0.0.1:8182";
 
-const DOWNSTREAM: &str = "127.0.0.1:8284";
+const DOWNSTREAM: &str = "127.0.0.1";
 
 #[tokio::test]
 async fn test() {
@@ -61,7 +61,9 @@ async fn test() {
 
 async fn http_app() -> anyhow::Result<()> {
     let router = axum::Router::new().route("/", axum::routing::get(|| async { "hello world" }));
-    let listener = tokio::net::TcpListener::bind(DOWNSTREAM).await.unwrap();
+    let listener = tokio::net::TcpListener::bind((DOWNSTREAM, 8183))
+        .await
+        .unwrap();
     Ok(axum::serve(listener, router).await?)
 }
 
@@ -75,7 +77,7 @@ async fn http_client(node_id: NodeId) -> anyhow::Result<String> {
 
     println!("node_id: {}", node_id);
     let res = http_client
-        .get(format!("http://{}", node_id))
+        .get(format!("http://{}:8183", node_id))
         .send()
         .await?
         .text()

@@ -1,5 +1,5 @@
 // #![allow(unused)]
-use crate::{NodeId, Stream, ALPN};
+use crate::{NodeId, Stream, WavePacket, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::Endpoint;
@@ -140,7 +140,9 @@ impl Handler {
             Address::Domain(domain, port) => match NodeId::from_str(domain) {
                 Ok(node_id) => {
                     let conn = self.endpoint.connect(node_id.0, ALPN).await?;
-                    let stream = conn.open_bi().await?;
+                    let mut stream = conn.open_bi().await?;
+                    let wave_packet = WavePacket { port: *port };
+                    stream.0.write_u16(wave_packet.port).await?;
 
                     info!(%node_id, "Connected to remote endpoint via iroh");
 
