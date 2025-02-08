@@ -2,22 +2,19 @@ use crate::Stream;
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::{endpoint::Incoming, Endpoint};
-use std::net::{IpAddr, SocketAddr};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::info;
-use wave_core::{NodeId, WavePacket};
+use wave_core::{NodeId, Server, WavePacket};
 
-pub struct Server {
+pub struct ServerService {
+    server: Arc<wave_core::Server>,
     endpoint: Endpoint,
-    downstream_peer: IpAddr,
 }
 
-impl Server {
-    pub fn new(endpoint: Endpoint, downstream_peer: IpAddr) -> Self {
-        Self {
-            endpoint,
-            downstream_peer,
-        }
+impl ServerService {
+    pub fn new(server: Arc<wave_core::Server>, endpoint: Endpoint) -> Self {
+        Self { server, endpoint }
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
@@ -28,8 +25,9 @@ impl Server {
                 continue;
             };
 
+            let server = self.server.clone();
             tokio::spawn(async move {
-                Self::handle(conn, self.downstream_peer)
+                Self::handle(conn, server)
                     .await
                     .inspect_err(|e| {
                         tracing::error!("handle incomming error: {}", e);
@@ -39,7 +37,7 @@ impl Server {
         }
     }
 
-    async fn handle(incoming: Incoming, downstream_peer: IpAddr) -> anyhow::Result<()> {
+    async fn handle(incoming: Incoming, server: Arc<Server>) -> anyhow::Result<()> {
         let remote_addr = incoming.remote_address();
         let local_addr = incoming.local_ip();
         let iroh_conn = incoming.await?;
@@ -53,9 +51,16 @@ impl Server {
             }
         };
         let remote_node_id = iroh_conn.remote_node_id()?;
-        let conn = wave_core::Connection::accept(NodeId(remote_node_id), wave_packet);
+        let (conn, ip) = server.accept(NodeId(remote_node_id), wave_packet);
 
-        let downstream_peer = SocketAddr::new(downstream_peer, conn.port());
+        let ip = match ip {
+            Some(ip) => ip,
+            None => {
+                return Err(anyhow::anyhow!("no ip for subdomain {}", conn.subdomain()));
+            }
+        };
+
+        let downstream_peer = SocketAddr::new(ip, conn.port());
 
         info!(local = ?local_addr, remote = %remote_addr, "Accept connection");
 

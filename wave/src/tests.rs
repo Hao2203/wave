@@ -1,8 +1,10 @@
-use crate::{client::Client, server::Server, ALPN};
+use std::sync::Arc;
+
+use crate::{client::Client, server::ServerService, ALPN};
 use iroh::Endpoint;
 use reqwest::Proxy;
 use tracing::info;
-use wave_core::NodeId;
+use wave_core::{NodeId, Server};
 
 const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
 
@@ -32,7 +34,9 @@ async fn test() {
 
         info!("node_id: {}", node_id);
 
-        let server = Server::new(ep, DOWNSTREAM.parse().unwrap());
+        let mut server = Server::default();
+        server.add("".parse().unwrap(), DOWNSTREAM.parse().unwrap());
+        let server = ServerService::new(Arc::new(server), ep);
 
         server.run().await.unwrap();
     });

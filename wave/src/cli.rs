@@ -1,8 +1,9 @@
-use crate::{client::Client, server::Server, ALPN};
+use crate::{client::Client, server::ServerService, ALPN};
 use clap::{Args, Parser};
 use iroh::Endpoint;
-use std::net::IpAddr;
+use std::{net::IpAddr, sync::Arc};
 use tracing::info;
+use wave_core::Server;
 
 const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
 
@@ -71,7 +72,10 @@ async fn spawn_server(bind: IpAddr) {
 
     println!("node_id: {}, bind: {}", node_id, bind);
 
-    let server = Server::new(ep, bind);
+    let mut server = Server::default();
+    server.add("".parse().unwrap(), bind);
+
+    let server = ServerService::new(Arc::new(server), ep);
 
     server.run().await.unwrap();
 }

@@ -1,5 +1,6 @@
-use crate::{NodeIdParsingError, WavePacketDecodeError};
+use crate::{NodeIdParsingError, connection::WavePacketDecodeError};
 use derive_more::{Display, From};
+use std::sync::Arc;
 
 #[derive(Debug, From, Display, derive_more::Error)]
 pub enum Error {
@@ -7,4 +8,7 @@ pub enum Error {
     NodeIdParsingError(NodeIdParsingError),
     #[from]
     WavePacketDecodeError(WavePacketDecodeError),
+    #[display("Subdomain overflow: {_0}")]
+    #[error(ignore)]
+    SubdomainOverflow(Arc<str>),
 }
