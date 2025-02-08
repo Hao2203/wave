@@ -11,6 +11,8 @@ pub enum Error {
     #[display("Subdomain overflow: {_0}")]
     #[error(ignore)]
     SubdomainOverflow(Arc<str>),
+    #[error(ignore)]
+    DomainOverflow(Arc<str>),
     #[from]
     AddrParseError(std::net::AddrParseError),
 }

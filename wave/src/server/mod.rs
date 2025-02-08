@@ -2,10 +2,13 @@ use crate::Stream;
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::{endpoint::Incoming, Endpoint};
-use std::{net::SocketAddr, sync::Arc};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Arc;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 use tracing::info;
-use wave_core::{NodeId, Server, WavePacket};
+use wave_core::{server::Host, NodeId, Server, WavePacket};
 
 pub struct ServerService {
     server: Arc<wave_core::Server>,
@@ -51,9 +54,9 @@ impl ServerService {
             }
         };
         let remote_node_id = iroh_conn.remote_node_id()?;
-        let (conn, ip) = server.accept(NodeId(remote_node_id), wave_packet);
+        let (conn, host) = server.accept(NodeId(remote_node_id), wave_packet);
 
-        let ip = match ip {
+        let downstream_host = match host {
             Ok(ip) => ip,
             Err(fallback) => {
                 send_stream.write_all_buf(&mut fallback.bytes()).await?;
@@ -61,13 +64,14 @@ impl ServerService {
             }
         };
 
-        let downstream_peer = SocketAddr::new(ip, conn.port());
-
         info!(local = ?local_addr, remote = %remote_addr, "Accept connection");
 
-        let mut downstream = tokio::net::TcpStream::connect(downstream_peer).await?;
+        let mut downstream = match &downstream_host {
+            Host::Ip(ip) => TcpStream::connect((*ip, conn.port())).await?,
+            Host::Domain(domain) => TcpStream::connect((domain.as_ref(), conn.port())).await?,
+        };
 
-        info!("proxy to {}", downstream_peer);
+        info!("proxy to {}", downstream_host);
 
         let mut upstream = Stream::Iroh(send_stream, recv_stream);
 
