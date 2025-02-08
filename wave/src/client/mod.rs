@@ -3,13 +3,13 @@ use crate::{Stream, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::Endpoint;
-use std::{net::SocketAddr, str::FromStr};
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, ToSocketAddrs},
 };
 use tracing::{debug, info, warn};
-use wave_core::NodeId;
+use wave_core::{NodeId, Server};
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
@@ -22,29 +22,37 @@ use wave_proxy::{
 mod tests;
 
 pub struct Client {
+    server: Arc<Server>,
     listener: tokio::net::TcpListener,
     endpoint: Endpoint,
 }
 
 impl Client {
     pub async fn new<A: ToSocketAddrs>(
+        server: Arc<Server>,
         bind: A,
         endpoint: Endpoint,
     ) -> Result<Self, std::io::Error> {
         let listener = tokio::net::TcpListener::bind(bind).await?;
-        Ok(Self { listener, endpoint })
+        Ok(Self {
+            server,
+            listener,
+            endpoint,
+        })
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
         loop {
             let (stream, local) = self.listener.accept().await?;
             let endpoint = self.endpoint.clone();
+            let server = self.server.clone();
             tokio::spawn(async move {
                 let upstream_address = stream
                     .peer_addr()
                     .inspect_err(|e| tracing::error!("Get peer address failed: {}", e))
                     .expect("Get peer address failed");
                 let handler = Handler {
+                    server,
                     local,
                     endpoint,
                     upstream_address,
@@ -64,6 +72,7 @@ impl Client {
 }
 
 struct Handler {
+    server: Arc<Server>,
     local: SocketAddr,
     upstream_address: SocketAddr,
     endpoint: Endpoint,
@@ -141,6 +150,7 @@ impl Handler {
             Address::Domain(domain, port) => match NodeId::from_str(domain) {
                 Ok(node_id) => {
                     let conn = self.endpoint.connect(node_id.0, ALPN).await?;
+
                     let mut stream = conn.open_bi().await?;
 
                     let (mut data, _) = wave_core::Connection::connect(domain, *port)?;

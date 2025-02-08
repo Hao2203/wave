@@ -70,6 +70,10 @@ impl Server {
 
         (conn, ip)
     }
+
+    pub fn get_target(&self, subdomain: &Subdomain) -> Option<Host> {
+        self.router.get(subdomain).cloned()
+    }
 }
 
 impl IntoIterator for Server {

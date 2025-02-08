@@ -14,6 +14,7 @@ iroh = { workspace = true, features = [
 derive_more = { workspace = true, features = ["from", "display", "error"] }
 tokio = { workspace = true, features = ["net"] }
 futures-lite = { workspace = true }
+async-channel = { workspae = true }
 
 clap = { version = "4.5", features = ["derive"] }
 config = { version = "0.15.7" }

@@ -20,6 +20,11 @@ async fn test() {
 
     let (tx, rx) = tokio::sync::oneshot::channel();
 
+    let mut server = Server::default();
+    server.add("".parse().unwrap(), DOWNSTREAM.parse().unwrap());
+    let server = Arc::new(server);
+
+    let server_clone = server.clone();
     tokio::spawn(async move {
         info!("start server");
         let ep = Endpoint::builder()
@@ -34,9 +39,7 @@ async fn test() {
 
         info!("node_id: {}", node_id);
 
-        let mut server = Server::default();
-        server.add("".parse().unwrap(), DOWNSTREAM.parse().unwrap());
-        let server = ServerService::new(Arc::new(server), ep);
+        let server = ServerService::new(server_clone, ep);
 
         server.run().await.unwrap();
     });
@@ -44,6 +47,7 @@ async fn test() {
     tokio::spawn(async move {
         info!("start client");
         let client = Client::new(
+            server,
             CLIENT_PROXY,
             Endpoint::builder()
                 .discovery_local_network()
