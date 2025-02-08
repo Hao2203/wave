@@ -108,6 +108,7 @@ impl HandshakeResponse {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectRequest {
     pub command: Command,
     pub target: Address,
@@ -169,7 +170,7 @@ pub enum ConnectedStatus {
     AddressTypeNotSupported = SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Command {
     Connect = SOCKS5_CMD_TCP_CONNECT,

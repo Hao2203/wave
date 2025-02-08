@@ -96,3 +96,16 @@ pub enum WavePacketDecodeError {
     #[display("Subdomain overflow")]
     SubdomainOverflow,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_domain() {
+        let domain = "baidu.s7jhj79f0kd4qd7ee7mlfcuqgju2sdj890p3p95iecpaoimhhig0";
+        let (_, conn) = Connection::connect(domain, 8080).unwrap();
+        assert_eq!(conn.port, 8080);
+        assert_eq!(conn.subdomain.as_str(), "baidu");
+    }
+}

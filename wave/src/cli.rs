@@ -26,15 +26,20 @@ pub async fn run_cli() -> anyhow::Result<()> {
     let config = config::init_config()?;
     match cli {
         Cli::Bind(args) => {
-            let addr = args.addr.unwrap_or_else(|| DOWNSTREAM.to_string());
             let mut server = Server::try_from_iter(config.router)?;
-            server.add("".parse()?, addr.parse()?);
+            if let Some(addr) = args.addr {
+                server.add("".parse()?, addr.parse()?);
+            } else {
+                server.add("".parse()?, DOWNSTREAM.parse()?)
+            }
+
+            server.iter().for_each(|(k, v)| info!("{}: {}", k, v));
 
             let ep = Endpoint::builder()
                 .alpns(vec![ALPN.into()])
                 .discovery_local_network()
                 .discovery_n0()
-                .discovery_dht()
+                // .discovery_dht()
                 .bind_addr_v4(SERVER_ENDPOINT.parse().unwrap())
                 .bind()
                 .await
@@ -52,7 +57,7 @@ pub async fn run_cli() -> anyhow::Result<()> {
 fn spawn_client(ep: Endpoint, server: Arc<Server>) {
     tokio::spawn(async move {
         info!("start client");
-        let client = Client::new(server, CLIENT_PROXY, ep).await.unwrap();
+        let client = Client::new(CLIENT_PROXY, ep, server).await.unwrap();
 
         client.run().await.unwrap();
     });

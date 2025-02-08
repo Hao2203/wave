@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
 use crate::{client::Client, server::ServerService, ALPN};
 use iroh::Endpoint;
 use reqwest::Proxy;
+use std::sync::Arc;
 use tracing::info;
 use wave_core::{NodeId, Server};
 
@@ -47,7 +46,6 @@ async fn test() {
     tokio::spawn(async move {
         info!("start client");
         let client = Client::new(
-            server,
             CLIENT_PROXY,
             Endpoint::builder()
                 .discovery_local_network()
@@ -55,6 +53,7 @@ async fn test() {
                 .bind()
                 .await
                 .unwrap(),
+            server,
         )
         .await
         .unwrap();

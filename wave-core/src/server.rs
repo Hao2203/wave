@@ -39,6 +39,10 @@ impl Server {
         Self { router }
     }
 
+    pub fn iter(&self) -> std::collections::hash_map::Iter<Subdomain, Host> {
+        self.router.iter()
+    }
+
     pub fn try_from_iter(iter: impl IntoIterator<Item = (String, String)>) -> Result<Self, Error> {
         let router = iter
             .into_iter()

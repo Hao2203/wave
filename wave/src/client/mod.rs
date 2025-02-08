@@ -3,13 +3,16 @@ use crate::{Stream, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::Endpoint;
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, ToSocketAddrs},
 };
-use tracing::{debug, info, warn};
-use wave_core::{NodeId, Server};
+use tracing::{debug, info};
+use wave_core::{
+    server::{Fallback, Host},
+    Connection, Server,
+};
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
@@ -22,22 +25,22 @@ use wave_proxy::{
 mod tests;
 
 pub struct Client {
-    server: Arc<Server>,
     listener: tokio::net::TcpListener,
     endpoint: Endpoint,
+    server: Arc<Server>,
 }
 
 impl Client {
     pub async fn new<A: ToSocketAddrs>(
-        server: Arc<Server>,
         bind: A,
         endpoint: Endpoint,
+        server: Arc<Server>,
     ) -> Result<Self, std::io::Error> {
         let listener = tokio::net::TcpListener::bind(bind).await?;
         Ok(Self {
-            server,
             listener,
             endpoint,
+            server,
         })
     }
 
@@ -96,20 +99,18 @@ impl Handler {
 
         let req = ConnectRequest::decode(&mut buf)?.unwrap();
 
-        info!(target = %req.target, "Try to connect to {}", req.target);
-        let mut socks5 = match self.set_downstream(req.target.clone()).await {
-            Ok(()) => {
-                let (transmit, socks5) = socks5?.connect(req, ConnectedStatus::Succeeded);
-                self.send_transmit(transmit).await?;
+        info!(target = %req.target, "Try to connect " );
+        let (transmit, socks5) = socks5?.connect(req.clone(), ConnectedStatus::Succeeded);
+        self.send_transmit(transmit).await?;
+
+        let mut socks5 = match self.connect_to_downstream(req.target.clone()).await {
+            Ok(stream) => {
+                self.downstream = Some((req.target.clone(), stream));
                 Ok(socks5?)
             }
             Err(e) => {
-                let target = req.target.clone();
-                let (transmit, _) = socks5?.connect(req, ConnectedStatus::HostUnreachable);
-
-                warn!(target = %target, "Connect to {} failed: {}", target, e);
-
-                self.send_transmit(transmit).await?;
+                let fallback = Fallback::default();
+                self.upstream.write_all_buf(&mut fallback.bytes()).await?;
                 Err(e)
             }
         }?;
@@ -134,7 +135,7 @@ impl Handler {
         }
     }
 
-    async fn set_downstream(&mut self, addr: Address) -> anyhow::Result<()> {
+    async fn connect_to_downstream(&self, addr: Address) -> anyhow::Result<Stream> {
         let stream = match &addr {
             Address::Ip(ip) => {
                 let stream = TcpStream::connect(ip).await?;
@@ -147,8 +148,34 @@ impl Handler {
 
                 Stream::Tcp(stream)
             }
-            Address::Domain(domain, port) => match NodeId::from_str(domain) {
-                Ok(node_id) => {
+            Address::Domain(domain, port) => match Connection::connect(domain, *port) {
+                Ok((_, conn)) => {
+                    let node_id = conn.node_id();
+                    if node_id.0 == self.endpoint.node_id() {
+                        info!(?node_id, "Connected to self");
+
+                        let target = self.server.get_target(&conn.subdomain());
+                        let res = match target {
+                            Some(Host::Ip(ip)) => {
+                                info!(%ip, %port, "Self connected, route to target via tcp");
+
+                                let stream = TcpStream::connect((ip, *port)).await?;
+                                Ok(Stream::Tcp(stream))
+                            }
+                            Some(Host::Domain(domain)) => {
+                                info!(%domain, %port, "Self connected, route to target via tcp");
+
+                                let stream = TcpStream::connect((domain.as_ref(), *port)).await?;
+                                Ok(Stream::Tcp(stream))
+                            }
+                            None => Err(anyhow::anyhow!(
+                                "no target for subdomain {}",
+                                conn.subdomain()
+                            )),
+                        };
+                        return res;
+                    }
+
                     let conn = self.endpoint.connect(node_id.0, ALPN).await?;
 
                     let mut stream = conn.open_bi().await?;
@@ -170,8 +197,7 @@ impl Handler {
                 }
             },
         };
-        self.downstream = Some((addr, stream));
-        Ok(())
+        Ok(stream)
     }
 
     async fn get_stream(&mut self, address: &Address) -> anyhow::Result<&mut Stream> {
