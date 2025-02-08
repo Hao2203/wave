@@ -1,5 +1,5 @@
 // #![allow(unused)]
-use crate::{NodeId, Stream, WavePacket, ALPN};
+use crate::{Stream, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::Endpoint;
@@ -9,6 +9,7 @@ use tokio::{
     net::{TcpStream, ToSocketAddrs},
 };
 use tracing::{debug, info, warn};
+use wave_core::NodeId;
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
@@ -141,8 +142,10 @@ impl Handler {
                 Ok(node_id) => {
                     let conn = self.endpoint.connect(node_id.0, ALPN).await?;
                     let mut stream = conn.open_bi().await?;
-                    let wave_packet = WavePacket { port: *port };
-                    stream.0.write_u16(wave_packet.port).await?;
+
+                    let (mut data, _) = wave_core::Connection::connect(domain, *port)?;
+
+                    stream.0.write_all_buf(&mut data).await?;
 
                     info!(%node_id, "Connected to remote endpoint via iroh");
 

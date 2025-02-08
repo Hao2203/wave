@@ -1,4 +1,3 @@
-use derive_more::{Display, Error, From};
 use iroh::endpoint::{RecvStream, SendStream};
 use std::pin::pin;
 use tokio::{
@@ -13,37 +12,6 @@ pub mod server;
 mod tests;
 
 pub const ALPN: &[u8] = b"wave";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WavePacket {
-    pub port: u16,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(pub iroh::PublicKey);
-
-impl std::fmt::Display for NodeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let encoder = data_encoding::BASE32_DNSSEC;
-        let bs32 = encoder.encode_display(self.0.as_bytes());
-        write!(f, "{}", bs32)
-    }
-}
-
-#[derive(Debug, Display, From, Error)]
-pub enum NodeIdParsingError {
-    Decode(data_encoding::DecodeError),
-    Key(ed25519_dalek::SignatureError),
-}
-
-impl std::str::FromStr for NodeId {
-    type Err = NodeIdParsingError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = data_encoding::BASE32_DNSSEC.decode(s.as_bytes())?;
-        let public_key = iroh::PublicKey::try_from(bytes.as_slice())?;
-        Ok(NodeId(public_key))
-    }
-}
 
 pub enum Stream {
     Iroh(SendStream, RecvStream),

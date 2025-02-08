@@ -1,7 +1,8 @@
-use crate::{client::Client, server::Server, NodeId, ALPN};
+use crate::{client::Client, server::Server, ALPN};
 use iroh::Endpoint;
 use reqwest::Proxy;
 use tracing::info;
+use wave_core::NodeId;
 
 const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
 

@@ -6,7 +6,12 @@ edition = "2024"
 [dependencies]
 iroh = { workspace = true }
 
-derive_more = { workspace = true, features = ["from", "display", "as_ref"] }
+derive_more = { workspace = true, features = [
+    "from",
+    "display",
+    "as_ref",
+    "error",
+] }
 serde = { workspace = true, features = ["derive"] }
 
 anyhow = { workspace = true }
@@ -19,3 +24,5 @@ anyhow = { workspace = true }
 # ulid = { version = "1.1", features = ["serde"] }
 
 bytes = { version = "1.7" }
+data-encoding = { version = "2.7" }
+ed25519-dalek = { version = "2.1.1" }
