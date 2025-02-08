@@ -1,7 +1,7 @@
-use crate::{client::Client, server::ServerService, ALPN};
+use crate::{client::Client, config, server::ServerService, ALPN};
 use clap::{Args, Parser};
 use iroh::Endpoint;
-use std::{net::IpAddr, sync::Arc};
+use std::sync::Arc;
 use tracing::info;
 use wave_core::Server;
 
@@ -25,11 +25,15 @@ pub struct BindArgs {
 
 pub async fn run_cli() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let config = config::init_config()?;
     match cli {
         Cli::Bind(args) => {
             let addr = args.addr.unwrap_or_else(|| DOWNSTREAM.to_string());
+            let mut server = Server::try_from_iter(config.router)?;
+            server.add("".parse()?, addr.parse()?);
+
             spawn_client();
-            spawn_server(addr.parse()?).await;
+            spawn_server(server).await;
         }
     }
 
@@ -57,7 +61,7 @@ fn spawn_client() {
     });
 }
 
-async fn spawn_server(bind: IpAddr) {
+async fn spawn_server(server: Server) {
     info!("start server");
     let ep = Endpoint::builder()
         .alpns(vec![ALPN.into()])
@@ -70,10 +74,7 @@ async fn spawn_server(bind: IpAddr) {
         .unwrap();
     let node_id = ep.node_id();
 
-    println!("node_id: {}, bind: {}", node_id, bind);
-
-    let mut server = Server::default();
-    server.add("".parse().unwrap(), bind);
+    println!("node_id: {}", node_id);
 
     let server = ServerService::new(Arc::new(server), ep);
 

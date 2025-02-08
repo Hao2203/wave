@@ -16,6 +16,9 @@ tokio = { workspace = true, features = ["net"] }
 futures-lite = { workspace = true }
 
 clap = { version = "4.5", features = ["derive"] }
+config = { version = "0.15.7" }
+
+serde = { workspace = true, features = ["derive"] }
 bytes = { workspace = true }
 anyhow = { workspace = true }
 rand = { version = "0.9" }

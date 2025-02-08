@@ -7,6 +7,7 @@ use tokio::{
 
 pub mod cli;
 pub mod client;
+pub mod config;
 pub mod server;
 #[cfg(test)]
 mod tests;

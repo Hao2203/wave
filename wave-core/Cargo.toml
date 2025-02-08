@@ -13,6 +13,7 @@ derive_more = { workspace = true, features = [
     "error",
 ] }
 serde = { workspace = true, features = ["derive"] }
+http = { version = "1.2" }
 
 anyhow = { workspace = true }
 

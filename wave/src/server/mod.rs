@@ -41,7 +41,7 @@ impl ServerService {
         let remote_addr = incoming.remote_address();
         let local_addr = incoming.local_ip();
         let iroh_conn = incoming.await?;
-        let (send_stream, mut recv_stream) = iroh_conn.accept_bi().await?;
+        let (mut send_stream, mut recv_stream) = iroh_conn.accept_bi().await?;
 
         let mut downstream_buf = BytesMut::with_capacity(1024);
         let wave_packet = loop {
@@ -54,8 +54,9 @@ impl ServerService {
         let (conn, ip) = server.accept(NodeId(remote_node_id), wave_packet);
 
         let ip = match ip {
-            Some(ip) => ip,
-            None => {
+            Ok(ip) => ip,
+            Err(fallback) => {
+                send_stream.write_all_buf(&mut fallback.bytes()).await?;
                 return Err(anyhow::anyhow!("no ip for subdomain {}", conn.subdomain()));
             }
         };

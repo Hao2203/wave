@@ -1,6 +1,7 @@
 pub use connection::{Connection, WavePacket};
 use derive_more::{AsRef, Display, Error, From};
 pub use error::Error;
+use serde::{Deserialize, Serialize};
 pub use server::Server;
 use std::{ops::Deref, str::FromStr, sync::Arc};
 
@@ -10,7 +11,7 @@ pub mod server;
 #[cfg(test)]
 mod test;
 
-#[derive(Debug, Clone, Display, AsRef, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Display, AsRef, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Subdomain(Arc<str>);
 
 impl Subdomain {
