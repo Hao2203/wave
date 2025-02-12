@@ -1,24 +1,70 @@
-use iroh::PublicKey;
+pub use connection::{Connection, WavePacket};
+use derive_more::{AsRef, Display, Error, From};
+pub use error::Error;
+use serde::{Deserialize, Serialize};
+pub use server::Server;
+use std::{ops::Deref, str::FromStr, sync::Arc};
 
+pub mod connection;
+pub mod error;
 pub mod server;
 #[cfg(test)]
 mod test;
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    serde::Serialize,
-    serde::Deserialize,
-    derive_more::From,
-)]
-pub struct Address(PublicKey);
+#[derive(Debug, Clone, Display, AsRef, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Subdomain(Arc<str>);
 
-pub trait Node {
-    fn address(&self) -> Address;
+impl Subdomain {
+    pub const MAX_LEN: usize = 255;
+
+    pub fn new(subdomain: Arc<str>) -> Result<Self, Error> {
+        if subdomain.len() > Self::MAX_LEN {
+            Err(Error::SubdomainOverflow(subdomain))
+        } else {
+            Ok(Subdomain(subdomain))
+        }
+    }
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl FromStr for Subdomain {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(Arc::from(s))
+    }
+}
+
+impl Deref for Subdomain {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(pub iroh::PublicKey);
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let encoder = data_encoding::BASE32_DNSSEC;
+        let bs32 = encoder.encode_display(self.0.as_bytes());
+        write!(f, "{}", bs32)
+    }
+}
+
+#[derive(Debug, Display, From, Error)]
+pub enum NodeIdParsingError {
+    Decode(data_encoding::DecodeError),
+    Key(ed25519_dalek::SignatureError),
+}
+
+impl std::str::FromStr for NodeId {
+    type Err = NodeIdParsingError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = data_encoding::BASE32_DNSSEC.decode(s.as_bytes())?;
+        let public_key = iroh::PublicKey::try_from(bytes.as_slice())?;
+        Ok(NodeId(public_key))
+    }
 }
