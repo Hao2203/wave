@@ -1,14 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{Host, Subdomain};
+use crate::{Error, Host, Subdomain};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct RouterBuilder {
     map: HashMap<Subdomain, Host>,
 }
 
 impl RouterBuilder {
-    pub fn new() -> Self {
+    pub fn new() -> RouterBuilder {
         Self {
             map: HashMap::new(),
         }
@@ -19,14 +19,23 @@ impl RouterBuilder {
         self
     }
 
-    pub fn build(self) -> Router {
-        Router {
-            inner: Arc::new(self.map),
+    pub fn build(mut self) -> Result<Router, Error> {
+        if self.map.is_empty() {
+            self.map.insert("".parse()?, "127.0.0.1".parse()?);
         }
+        Ok(Router {
+            inner: Arc::new(self.map),
+        })
     }
 }
 
-#[derive(Debug, Default, Clone)]
+impl Default for RouterBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Router {
     inner: Arc<HashMap<Subdomain, Host>>,
 }

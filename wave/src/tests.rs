@@ -1,14 +1,10 @@
-use std::net::SocketAddr;
-
 use crate::{client::Client, server::ServerService, ALPN};
 use iroh::Endpoint;
 use reqwest::{Proxy, Response};
+use std::net::SocketAddr;
 use tracing::info;
 use wave_core::{router::Router, NodeId, Server};
-
-// const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
-
-const CLIENT_PROXY: &str = "127.0.0.1:8182";
+use wave_proxy::Proxy as WaveProxy;
 
 #[tokio::test]
 async fn test() {
@@ -18,19 +14,30 @@ async fn test() {
 
     let router = Router::builder()
         .add("".parse().unwrap(), http_server_addr.ip().into())
-        .build();
+        .build()
+        .unwrap();
 
-    let node_id = spawn_wave(router).await.unwrap();
+    let proxy = WaveProxy::new("127.0.0.1:8182".parse().unwrap());
+    let socks5_addr = proxy.socks5_addr();
+    let node_id = spawn_wave(router.clone(), proxy).await.unwrap();
 
-    // let node_id = spawn_wave(Router::default()).await.unwrap();
-    let res = get_http_response(node_id, http_server_addr.port())
+    let res = get_http_response(socks5_addr, node_id, http_server_addr.port())
+        .await
+        .unwrap();
+
+    assert_eq!(res.text().await.unwrap(), "hello world");
+
+    let proxy = WaveProxy::new("127.0.0.1:8183".parse().unwrap());
+    let socks5_addr = proxy.socks5_addr();
+    let node_id = spawn_wave(router, proxy).await.unwrap();
+    let res = get_http_response(socks5_addr, node_id, http_server_addr.port())
         .await
         .unwrap();
 
     assert_eq!(res.text().await.unwrap(), "hello world");
 }
 
-async fn spawn_wave(router: Router) -> anyhow::Result<NodeId> {
+async fn spawn_wave(router: Router, proxy: WaveProxy) -> anyhow::Result<NodeId> {
     let ep = Endpoint::builder()
         .alpns(vec![ALPN.into()])
         .discovery_local_network()
@@ -47,14 +54,14 @@ async fn spawn_wave(router: Router) -> anyhow::Result<NodeId> {
     tokio::spawn(async move {
         info!("start server");
 
-        server_service.run().await.unwrap();
+        server_service.run().await.expect("run server failed");
     });
 
-    let client_server = Client::new(CLIENT_PROXY, ep, server).await.unwrap();
+    let client_server = Client::new(proxy, server, ep);
     tokio::spawn(async move {
         info!("start client");
 
-        client_server.run().await.unwrap();
+        client_server.run().await.expect("run client failed");
     });
 
     Ok(node_id)
@@ -68,13 +75,19 @@ async fn spawn_http_server() -> anyhow::Result<SocketAddr> {
     Ok(socket)
 }
 
-async fn get_http_response(node_id: NodeId, http_server_port: u16) -> anyhow::Result<Response> {
-    let proxy = Proxy::all(format!("socks5h://{}", CLIENT_PROXY)).unwrap();
+async fn get_http_response(
+    socks5_addr: SocketAddr,
+    node_id: NodeId,
+    http_server_port: u16,
+) -> anyhow::Result<Response> {
+    info!("socks5_addr: {}", socks5_addr);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let proxy = Proxy::all(format!("socks5h://{}", socks5_addr))?;
     let http_client = reqwest::Client::builder()
         .proxy(proxy)
         .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .unwrap();
+        .build()?;
 
     println!("node_id: {}", node_id);
     let res = http_client

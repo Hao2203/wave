@@ -2,7 +2,7 @@ use crate::{Connection, Host, NodeId, Subdomain, WavePacket, router::Router};
 use bytes::{Bytes, BytesMut};
 use http::Response;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Server {
     router: Router,
 }

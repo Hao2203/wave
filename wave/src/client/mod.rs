@@ -6,44 +6,40 @@ use iroh::Endpoint;
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpStream, ToSocketAddrs},
+    net::{TcpListener, TcpStream},
 };
 use tracing::{debug, info};
 use wave_core::{server::Fallback, Connection, Host, Server};
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
-        NoAuthHandshake, Transmit,
+        NoAuthHandshake,
     },
-    Address,
+    Address, Proxy, Transmit,
 };
 
 #[cfg(test)]
 mod tests;
 
 pub struct Client {
-    listener: tokio::net::TcpListener,
+    proxy: Proxy,
     endpoint: Endpoint,
     server: Server,
 }
 
 impl Client {
-    pub async fn new<A: ToSocketAddrs>(
-        bind: A,
-        endpoint: Endpoint,
-        server: Server,
-    ) -> Result<Self, std::io::Error> {
-        let listener = tokio::net::TcpListener::bind(bind).await?;
-        Ok(Self {
-            listener,
+    pub fn new(proxy: Proxy, server: Server, endpoint: Endpoint) -> Self {
+        Self {
+            proxy,
             endpoint,
             server,
-        })
+        }
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
+        let listener = TcpListener::bind(self.proxy.socks5_addr()).await?;
         loop {
-            let (stream, local) = self.listener.accept().await?;
+            let (stream, local) = listener.accept().await?;
             let endpoint = self.endpoint.clone();
             let server = self.server.clone();
             tokio::spawn(async move {

@@ -1,10 +1,9 @@
 // #![allow(unused_imports)]
-use super::*;
-use crate::{Address, AddressFromStrErr};
+use crate::{Address, AddressFromStrErr, Protocol, Transmit};
 use bytes::Bytes;
 use derive_more::derive::{Display, From};
 use std::{net::SocketAddr, sync::Arc};
-use types::*;
+pub use types::*;
 
 #[cfg(test)]
 mod tests;
@@ -105,14 +104,6 @@ impl Relay {
             data,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Transmit {
-    pub proto: Protocol,
-    pub local: SocketAddr,
-    pub to: Address,
-    pub data: Bytes,
 }
 
 #[derive(Debug, Display, From, PartialEq, Eq, derive_more::Error)]

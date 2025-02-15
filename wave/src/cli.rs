@@ -3,12 +3,7 @@ use clap::{Args, Parser};
 use iroh::Endpoint;
 use tracing::info;
 use wave_core::{router::Router, NodeId, Server};
-
-const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
-
-const CLIENT_PROXY: &str = "127.0.0.1:8182";
-
-const DOWNSTREAM: &str = "127.0.0.1";
+use wave_proxy::Proxy;
 
 #[derive(Parser)]
 pub enum Cli {
@@ -33,21 +28,23 @@ pub async fn run_cli() -> anyhow::Result<()> {
                 if let Some(addr) = args.addr {
                     builder = builder.add("".parse()?, addr.parse()?);
                 } else {
-                    builder = builder.add("".parse()?, DOWNSTREAM.parse()?);
+                    builder = builder.add("".parse()?, "127.0.0.1".parse()?);
                 }
-                Server::new(builder.build())
+                Server::new(builder.build()?)
             };
+
+            let proxy = Proxy::new(config.proxy.socks5.parse()?);
 
             let ep = Endpoint::builder()
                 .alpns(vec![ALPN.into()])
                 .discovery_local_network()
                 .discovery_n0()
                 // .discovery_dht()
-                .bind_addr_v4(SERVER_ENDPOINT.parse().unwrap())
+                .bind_addr_v4(config.server.address.parse()?)
                 .bind()
                 .await?;
 
-            spawn_client(ep.clone(), server.clone());
+            spawn_client(ep.clone(), server.clone(), proxy);
             spawn_server(ep, server).await;
         }
     }
@@ -55,10 +52,10 @@ pub async fn run_cli() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn spawn_client(ep: Endpoint, server: Server) {
+fn spawn_client(ep: Endpoint, server: Server, proxy: Proxy) {
     tokio::spawn(async move {
         info!("start client");
-        let client = Client::new(CLIENT_PROXY, ep, server).await.unwrap();
+        let client = Client::new(proxy, server, ep);
 
         client.run().await.unwrap();
     });
