@@ -3,16 +3,13 @@ use crate::{Stream, ALPN};
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::Endpoint;
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, ToSocketAddrs},
 };
 use tracing::{debug, info};
-use wave_core::{
-    server::{Fallback, Host},
-    Connection, Server,
-};
+use wave_core::{server::Fallback, Connection, Host, Server};
 use wave_proxy::{
     protocol::socks5::{
         types::{ConnectRequest, ConnectedStatus, HandshakeRequest},
@@ -27,14 +24,14 @@ mod tests;
 pub struct Client {
     listener: tokio::net::TcpListener,
     endpoint: Endpoint,
-    server: Arc<Server>,
+    server: Server,
 }
 
 impl Client {
     pub async fn new<A: ToSocketAddrs>(
         bind: A,
         endpoint: Endpoint,
-        server: Arc<Server>,
+        server: Server,
     ) -> Result<Self, std::io::Error> {
         let listener = tokio::net::TcpListener::bind(bind).await?;
         Ok(Self {
@@ -75,7 +72,7 @@ impl Client {
 }
 
 struct Handler {
-    server: Arc<Server>,
+    server: Server,
     local: SocketAddr,
     upstream_address: SocketAddr,
     endpoint: Endpoint,
@@ -149,7 +146,7 @@ impl Handler {
                 Stream::Tcp(stream)
             }
             Address::Domain(domain, port) => match Connection::connect(domain, *port) {
-                Ok((_, conn)) => {
+                Ok((mut data, conn)) => {
                     let node_id = conn.node_id();
                     if node_id.0 == self.endpoint.node_id() {
                         info!(?node_id, "Connected to self");
@@ -179,8 +176,6 @@ impl Handler {
                     let conn = self.endpoint.connect(node_id.0, ALPN).await?;
 
                     let mut stream = conn.open_bi().await?;
-
-                    let (mut data, _) = wave_core::Connection::connect(domain, *port)?;
 
                     stream.0.write_all_buf(&mut data).await?;
 

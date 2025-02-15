@@ -1,9 +1,8 @@
 use crate::{client::Client, config, server::ServerService, ALPN};
 use clap::{Args, Parser};
 use iroh::Endpoint;
-use std::sync::Arc;
 use tracing::info;
-use wave_core::{NodeId, Server};
+use wave_core::{router::Router, NodeId, Server};
 
 const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
 
@@ -26,14 +25,18 @@ pub async fn run_cli() -> anyhow::Result<()> {
     let config = config::init_config()?;
     match cli {
         Cli::Bind(args) => {
-            let mut server = Server::try_from_iter(config.router)?;
-            if let Some(addr) = args.addr {
-                server.add("".parse()?, addr.parse()?);
-            } else {
-                server.add("".parse()?, DOWNSTREAM.parse()?)
-            }
-
-            server.iter().for_each(|(k, v)| info!("{}: {}", k, v));
+            let server = {
+                let mut builder = Router::builder();
+                for (k, v) in config.router {
+                    builder = builder.add(k.parse()?, v.parse()?);
+                }
+                if let Some(addr) = args.addr {
+                    builder = builder.add("".parse()?, addr.parse()?);
+                } else {
+                    builder = builder.add("".parse()?, DOWNSTREAM.parse()?);
+                }
+                Server::new(builder.build())
+            };
 
             let ep = Endpoint::builder()
                 .alpns(vec![ALPN.into()])
@@ -42,10 +45,8 @@ pub async fn run_cli() -> anyhow::Result<()> {
                 // .discovery_dht()
                 .bind_addr_v4(SERVER_ENDPOINT.parse().unwrap())
                 .bind()
-                .await
-                .unwrap();
+                .await?;
 
-            let server = Arc::new(server);
             spawn_client(ep.clone(), server.clone());
             spawn_server(ep, server).await;
         }
@@ -54,7 +55,7 @@ pub async fn run_cli() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn spawn_client(ep: Endpoint, server: Arc<Server>) {
+fn spawn_client(ep: Endpoint, server: Server) {
     tokio::spawn(async move {
         info!("start client");
         let client = Client::new(CLIENT_PROXY, ep, server).await.unwrap();
@@ -63,7 +64,7 @@ fn spawn_client(ep: Endpoint, server: Arc<Server>) {
     });
 }
 
-async fn spawn_server(ep: Endpoint, server: Arc<Server>) {
+async fn spawn_server(ep: Endpoint, server: Server) {
     info!("start server");
     let node_id = NodeId(ep.node_id());
 

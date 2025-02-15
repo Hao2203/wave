@@ -3,13 +3,39 @@ use derive_more::{AsRef, Display, Error, From};
 pub use error::Error;
 use serde::{Deserialize, Serialize};
 pub use server::Server;
-use std::{ops::Deref, str::FromStr, sync::Arc};
+use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc};
 
 pub mod connection;
 pub mod error;
+pub mod router;
 pub mod server;
 #[cfg(test)]
 mod test;
+
+#[derive(Debug, Clone, Display, From)]
+pub enum Host {
+    Ip(IpAddr),
+    Domain(Arc<str>),
+}
+
+impl Host {
+    pub const MAX_LEN: usize = 255;
+}
+
+impl FromStr for Host {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() > Host::MAX_LEN {
+            return Err(Error::DomainOverflow(Arc::from(s)));
+        }
+        if let Ok(ip) = s.parse() {
+            Ok(Host::Ip(ip))
+        } else {
+            Ok(Host::Domain(Arc::from(s)))
+        }
+    }
+}
 
 #[derive(Debug, Clone, Display, AsRef, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Subdomain(Arc<str>);

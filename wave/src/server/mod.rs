@@ -2,21 +2,20 @@ use crate::Stream;
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::{endpoint::Incoming, Endpoint};
-use std::sync::Arc;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 use tracing::info;
-use wave_core::{server::Host, Connection, NodeId, Server, WavePacket};
+use wave_core::{Connection, Host, NodeId, Server, WavePacket};
 
 pub struct ServerService {
-    server: Arc<wave_core::Server>,
+    server: wave_core::Server,
     endpoint: Endpoint,
 }
 
 impl ServerService {
-    pub fn new(server: Arc<wave_core::Server>, endpoint: Endpoint) -> Self {
+    pub fn new(server: wave_core::Server, endpoint: Endpoint) -> Self {
         Self { server, endpoint }
     }
 
@@ -38,12 +37,13 @@ impl ServerService {
         }
     }
 
-    async fn handle(incoming: Incoming, server: Arc<Server>) -> anyhow::Result<()> {
+    async fn handle(incoming: Incoming, server: Server) -> anyhow::Result<()> {
         let iroh_conn = incoming.await?;
         let (mut send_stream, mut recv_stream) = iroh_conn.accept_bi().await?;
 
         let mut upstream_buf = BytesMut::with_capacity(1024);
         let wave_packet = loop {
+            upstream_buf.reserve(1024);
             recv_stream.read_buf(&mut upstream_buf).await?;
             if let Some(wave_packet) = WavePacket::decode(&mut upstream_buf)? {
                 break wave_packet;
@@ -106,8 +106,3 @@ impl ServerService {
         }
     }
 }
-
-// pub struct SelfConnecting {
-//     pub upstream: Stream,
-//     pub conn: Connection,
-// }

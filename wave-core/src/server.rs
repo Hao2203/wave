@@ -1,100 +1,33 @@
-use crate::{Connection, Error, NodeId, Subdomain, WavePacket};
+use crate::{Connection, Host, NodeId, Subdomain, WavePacket, router::Router};
 use bytes::{Bytes, BytesMut};
-use derive_more::Display;
 use http::Response;
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
-
-#[derive(Debug, Clone, Display)]
-pub enum Host {
-    Ip(IpAddr),
-    Domain(Arc<str>),
-}
-
-impl Host {
-    pub const MAX_LEN: usize = 255;
-}
-
-impl FromStr for Host {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() > Host::MAX_LEN {
-            return Err(Error::DomainOverflow(Arc::from(s)));
-        }
-        if let Ok(ip) = s.parse() {
-            Ok(Host::Ip(ip))
-        } else {
-            Ok(Host::Domain(Arc::from(s)))
-        }
-    }
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct Server {
-    router: HashMap<Subdomain, Host>,
+    router: Router,
 }
 
 impl Server {
-    pub fn new(router: HashMap<Subdomain, Host>) -> Self {
+    pub fn new(router: Router) -> Self {
         Self { router }
-    }
-
-    pub fn iter(&self) -> std::collections::hash_map::Iter<Subdomain, Host> {
-        self.router.iter()
-    }
-
-    pub fn try_from_iter(iter: impl IntoIterator<Item = (String, String)>) -> Result<Self, Error> {
-        let router = iter
-            .into_iter()
-            .map(|(subdomain, ipaddr)| {
-                let subdomain = Subdomain::new(Arc::from(subdomain))?;
-                let host = Host::from_str(&ipaddr)?;
-                Ok((subdomain, host))
-            })
-            .collect::<Result<_, Error>>()?;
-
-        Ok(Self { router })
-    }
-
-    pub fn add(&mut self, subdomain: Subdomain, ip: Host) {
-        self.router.insert(subdomain, ip);
     }
 
     pub fn accept(
         &self,
-        node_id: NodeId,
+        remote_node_id: NodeId,
         packet: WavePacket,
     ) -> (Connection, Result<Host, Fallback>) {
-        let conn = Connection::accept(node_id, packet);
+        let conn = Connection::accept(remote_node_id, packet);
         let ip = self
             .router
-            .get(&conn.subdomain())
-            .cloned()
+            .find_host(&conn.subdomain())
             .ok_or_else(Fallback::default);
 
         (conn, ip)
     }
 
     pub fn get_target(&self, subdomain: &Subdomain) -> Option<Host> {
-        self.router.get(subdomain).cloned()
-    }
-}
-
-impl IntoIterator for Server {
-    type Item = (Subdomain, Host);
-    type IntoIter = std::collections::hash_map::IntoIter<Subdomain, Host>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.router.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a Server {
-    type Item = (&'a Subdomain, &'a Host);
-    type IntoIter = std::collections::hash_map::Iter<'a, Subdomain, Host>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.router.iter()
+        self.router.find_host(subdomain)
     }
 }
 

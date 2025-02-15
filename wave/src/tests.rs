@@ -1,81 +1,74 @@
+use std::net::SocketAddr;
+
 use crate::{client::Client, server::ServerService, ALPN};
 use iroh::Endpoint;
-use reqwest::Proxy;
-use std::sync::Arc;
+use reqwest::{Proxy, Response};
 use tracing::info;
-use wave_core::{NodeId, Server};
+use wave_core::{router::Router, NodeId, Server};
 
-const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
-
-const CLIENT_ENDPOINT: &str = "127.0.0.1:8181";
+// const SERVER_ENDPOINT: &str = "127.0.0.1:8282";
 
 const CLIENT_PROXY: &str = "127.0.0.1:8182";
-
-const DOWNSTREAM: &str = "127.0.0.1";
 
 #[tokio::test]
 async fn test() {
     tracing_subscriber::fmt().init();
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let http_server_addr = spawn_http_server().await.unwrap();
 
-    let mut server = Server::default();
-    server.add("".parse().unwrap(), DOWNSTREAM.parse().unwrap());
-    let server = Arc::new(server);
+    let router = Router::builder()
+        .add("".parse().unwrap(), http_server_addr.ip().into())
+        .build();
 
-    let server_clone = server.clone();
+    let node_id = spawn_wave(router).await.unwrap();
+
+    // let node_id = spawn_wave(Router::default()).await.unwrap();
+    let res = get_http_response(node_id, http_server_addr.port())
+        .await
+        .unwrap();
+
+    assert_eq!(res.text().await.unwrap(), "hello world");
+}
+
+async fn spawn_wave(router: Router) -> anyhow::Result<NodeId> {
+    let ep = Endpoint::builder()
+        .alpns(vec![ALPN.into()])
+        .discovery_local_network()
+        // .bind_addr_v4(SERVER_ENDPOINT.parse().unwrap())
+        .bind()
+        .await?;
+    let node_id = NodeId(ep.node_id());
+
+    info!("node_id: {}", node_id);
+
+    let server = Server::new(router);
+    let server_service = ServerService::new(server.clone(), ep.clone());
+
     tokio::spawn(async move {
         info!("start server");
-        let ep = Endpoint::builder()
-            .alpns(vec![ALPN.into()])
-            .discovery_local_network()
-            .bind_addr_v4(SERVER_ENDPOINT.parse().unwrap())
-            .bind()
-            .await
-            .unwrap();
-        let node_id = NodeId(ep.node_id());
-        tx.send(node_id).unwrap();
 
-        info!("node_id: {}", node_id);
-
-        let server = ServerService::new(server_clone, ep);
-
-        server.run().await.unwrap();
+        server_service.run().await.unwrap();
     });
 
+    let client_server = Client::new(CLIENT_PROXY, ep, server).await.unwrap();
     tokio::spawn(async move {
         info!("start client");
-        let client = Client::new(
-            CLIENT_PROXY,
-            Endpoint::builder()
-                .discovery_local_network()
-                .bind_addr_v4(CLIENT_ENDPOINT.parse().unwrap())
-                .bind()
-                .await
-                .unwrap(),
-            server,
-        )
-        .await
-        .unwrap();
 
-        client.run().await.unwrap();
+        client_server.run().await.unwrap();
     });
 
-    tokio::spawn(async move { http_app().await.unwrap() });
-
-    let res = http_client(rx.await.unwrap()).await.unwrap();
-    assert_eq!(res, "hello world");
+    Ok(node_id)
 }
 
-async fn http_app() -> anyhow::Result<()> {
+async fn spawn_http_server() -> anyhow::Result<SocketAddr> {
     let router = axum::Router::new().route("/", axum::routing::get(|| async { "hello world" }));
-    let listener = tokio::net::TcpListener::bind((DOWNSTREAM, 8183))
-        .await
-        .unwrap();
-    Ok(axum::serve(listener, router).await?)
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let socket = listener.local_addr()?;
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    Ok(socket)
 }
 
-async fn http_client(node_id: NodeId) -> anyhow::Result<String> {
+async fn get_http_response(node_id: NodeId, http_server_port: u16) -> anyhow::Result<Response> {
     let proxy = Proxy::all(format!("socks5h://{}", CLIENT_PROXY)).unwrap();
     let http_client = reqwest::Client::builder()
         .proxy(proxy)
@@ -85,10 +78,8 @@ async fn http_client(node_id: NodeId) -> anyhow::Result<String> {
 
     println!("node_id: {}", node_id);
     let res = http_client
-        .get(format!("http://{}:8183", node_id))
+        .get(format!("http://{}:{}", node_id, http_server_port))
         .send()
-        .await?
-        .text()
         .await?;
     Ok(res)
 }
