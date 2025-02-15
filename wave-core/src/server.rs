@@ -12,16 +12,9 @@ impl Server {
         Self { router }
     }
 
-    pub fn accept(
-        &self,
-        remote_node_id: NodeId,
-        packet: WavePacket,
-    ) -> (Connection, Result<Host, Fallback>) {
+    pub fn accept(&self, remote_node_id: NodeId, packet: WavePacket) -> (Connection, Option<Host>) {
         let conn = Connection::accept(remote_node_id, packet);
-        let ip = self
-            .router
-            .find_host(&conn.subdomain())
-            .ok_or_else(Fallback::default);
+        let ip = self.router.find_host(&conn.subdomain());
 
         (conn, ip)
     }

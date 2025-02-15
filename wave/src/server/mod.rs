@@ -1,4 +1,3 @@
-use crate::Stream;
 use bytes::BytesMut;
 use futures_lite::FutureExt;
 use iroh::{endpoint::Incoming, Endpoint};
@@ -6,7 +5,7 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
-use tracing::info;
+use tracing::{info, warn};
 use wave_core::{Connection, Host, NodeId, Server, WavePacket};
 
 pub struct ServerService {
@@ -39,7 +38,7 @@ impl ServerService {
 
     async fn handle(incoming: Incoming, server: Server) -> anyhow::Result<()> {
         let iroh_conn = incoming.await?;
-        let (mut send_stream, mut recv_stream) = iroh_conn.accept_bi().await?;
+        let (send_stream, mut recv_stream) = iroh_conn.accept_bi().await?;
 
         let mut upstream_buf = BytesMut::with_capacity(1024);
         let wave_packet = loop {
@@ -53,15 +52,19 @@ impl ServerService {
         let (conn, host) = server.accept(NodeId(remote_node_id), wave_packet);
 
         let host = match host {
-            Ok(host) => host,
-            Err(fallback) => {
-                send_stream.write_all_buf(&mut fallback.bytes()).await?;
-                return Ok(());
+            Some(host) => host,
+            None => {
+                warn!(
+                    node_id = ?remote_node_id,
+                    subdomain = ?conn.subdomain(),
+                    "No host found for subdomain"
+                );
+                return Err(anyhow::anyhow!("No host found for subdomain"));
             }
         };
 
         Self::handle_stream(
-            Stream::Iroh(send_stream, recv_stream),
+            tokio::io::join(recv_stream, send_stream),
             upstream_buf,
             conn,
             host,

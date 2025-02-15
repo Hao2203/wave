@@ -11,22 +11,29 @@ iroh = { workspace = true, features = [
     "discovery-pkarr-dht",
     "discovery-local-network",
 ] }
-derive_more = { workspace = true, features = ["from", "display", "error"] }
-tokio = { workspace = true, features = ["net"] }
-futures-lite = { workspace = true }
-async-channel = { workspace = true }
-
-clap = { version = "4.5", features = ["derive"] }
-config = { version = "0.15.7" }
-
 serde = { workspace = true, features = ["derive"] }
 bytes = { workspace = true }
 anyhow = { workspace = true }
-rand = { version = "0.9" }
+derive_more = { workspace = true, features = ["from", "display", "error"] }
+rand = { version = "0.8" }
+
+tokio = { version = "1.42", features = ["net"] }
+futures-lite = { version = "2" }
+async-channel = { version = "2.3" }
+
+clap = { version = "4.5", features = ["derive"] }
+config = { version = "0.15.7" }
+dirs = { version = "6.0" }
+redb = { version = "2.4" }
+rmp-serde = { version = "1.3" }
+
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["full"] }
-reqwest = { version = "0.12", features = ["socks"] }
+tokio = { version = "1.42", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "socks",
+    "rustls-tls",
+] }
 axum = { version = "0.8.1" }

@@ -26,13 +26,13 @@ impl Default for Config {
     }
 }
 
-pub fn init_config() -> anyhow::Result<Config> {
+pub fn init_config() -> anyhow::Result<Option<Config>> {
     let config: Option<Config> = config::Config::builder()
         .add_source(config::File::with_name("config"))
         .build()
         .and_then(|config| config.try_deserialize())?;
 
-    Ok(config.unwrap_or_default())
+    Ok(config)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
