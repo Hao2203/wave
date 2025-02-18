@@ -1,0 +1,29 @@
+[package]
+name = "wave-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iroh = { workspace = true }
+
+derive_more = { workspace = true, features = [
+    "from",
+    "display",
+    "as_ref",
+    "error",
+] }
+serde = { workspace = true, features = ["derive"] }
+http = { version = "1.2" }
+
+anyhow = { workspace = true }
+
+# tokio = { workspace = true, features = [] }
+# futures-lite = { workspace = true }
+# async-trait = { workspace = true }
+# async-stream = { version = "0.3" }
+
+# ulid = { version = "1.1", features = ["serde"] }
+
+bytes = { version = "1.7" }
+data-encoding = { version = "2.7" }
+ed25519-dalek = { version = "2.1.1" }
