@@ -75,7 +75,7 @@ struct Handler {
 }
 
 impl Handler {
-    #[tracing::instrument(skip_all,ret, err, fields(client_handle_id = Ulid::new().to_string()))]
+    #[tracing::instrument(skip_all,ret, err, fields(client_handle_id = Ulid::new().to_string(), target))]
     async fn client_handle(mut self) -> anyhow::Result<()> {
         info!("Connect from {}", self.upstream_address);
 
@@ -91,7 +91,9 @@ impl Handler {
 
         let req = ConnectRequest::decode(&mut buf)?.unwrap();
 
-        info!(target = %req.target, "Try to connect " );
+        tracing::Span::current().record("target", req.target.to_string());
+        info!("Starting connection");
+
         let (transmit, socks5) = socks5?.connect(req.clone(), ConnectedStatus::Succeeded);
         self.send_transmit(transmit).await?;
 
@@ -108,9 +110,10 @@ impl Handler {
         }?;
 
         buf.clear();
-        buf.reserve(8 * 1024);
         let mut buf2 = BytesMut::with_capacity(8 * 1024);
         loop {
+            buf.reserve(8 * 1024);
+            buf2.reserve(8 * 1024);
             if let Some((addr, stream)) = self.downstream.as_mut() {
                 let (addr, data) = async {
                     stream.read_buf(&mut buf).await?;
