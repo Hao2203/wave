@@ -1,11 +1,12 @@
 use bytes::BytesMut;
 use futures_lite::FutureExt;
-use iroh::{endpoint::Incoming, Endpoint};
+use iroh::Endpoint;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 use tracing::{info, warn};
+use ulid::Ulid;
 use wave_core::{Connection, Host, NodeId, Server, WavePacket};
 
 pub struct ServerService {
@@ -20,25 +21,31 @@ impl ServerService {
 
     pub async fn run(self) -> anyhow::Result<()> {
         loop {
-            tokio::select! {
-                Some(conn) = self.endpoint.accept() => {
-                    let server = self.server.clone();
-                    tokio::spawn(async move {
-                        Self::handle(conn, server)
-                            .await
-                            .inspect_err(|e| {
-                                tracing::error!("handle incomming error: {}", e);
-                            })
-                            .expect("handle incomming failed");
-                    });
-                }
+            if let Some(conn) = self.endpoint.accept().await {
+                let server = self.server.clone();
+                tokio::spawn(async move {
+                    let conn = match conn.await {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            tracing::error!("accept connection error when handshake: {}", e);
+                            return;
+                        }
+                    };
+                    if let Err(_e) = Self::server_handle(conn, server).await {
+                        // tracing::error!("handle connection error: {}", e);
+                    }
+                });
             }
         }
     }
 
-    async fn handle(incoming: Incoming, server: Server) -> anyhow::Result<()> {
-        let iroh_conn = incoming.await?;
-        let (send_stream, mut recv_stream) = iroh_conn.accept_bi().await?;
+    #[tracing::instrument(skip_all, ret, err, fields(server_handle_id = Ulid::new().to_string(), remote_node_id))]
+    async fn server_handle(conn: iroh::endpoint::Connection, server: Server) -> anyhow::Result<()> {
+        let remote_node_id = NodeId(conn.remote_node_id()?);
+
+        tracing::Span::current().record("remote_node_id", remote_node_id.to_string());
+
+        let (send_stream, mut recv_stream) = conn.accept_bi().await?;
 
         let mut upstream_buf = BytesMut::with_capacity(1024);
         let wave_packet = loop {
@@ -48,8 +55,8 @@ impl ServerService {
                 break wave_packet;
             }
         };
-        let remote_node_id = iroh_conn.remote_node_id()?;
-        let (conn, host) = server.accept(NodeId(remote_node_id), wave_packet);
+
+        let (conn, host) = server.accept(remote_node_id, wave_packet);
 
         let host = match host {
             Some(host) => host,

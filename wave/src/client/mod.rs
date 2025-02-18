@@ -9,6 +9,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tracing::{debug, info};
+use ulid::Ulid;
 use wave_core::{server::Fallback, Connection, Host, Server};
 use wave_proxy::{
     protocol::socks5::{
@@ -55,18 +56,15 @@ impl Client {
                     upstream: Stream::Tcp(stream),
                     downstream: None,
                 };
-                handler
-                    .handle()
-                    .await
-                    .inspect_err(|e| {
-                        tracing::error!("handle incomming error: {}", e);
-                    })
-                    .expect("handle incomming failed");
+                if let Err(_e) = handler.client_handle().await {
+                    // tracing::error!("handle incomming error: {}", e);
+                }
             });
         }
     }
 }
 
+#[derive(Debug)]
 struct Handler {
     server: Server,
     local: SocketAddr,
@@ -77,7 +75,8 @@ struct Handler {
 }
 
 impl Handler {
-    async fn handle(mut self) -> anyhow::Result<()> {
+    #[tracing::instrument(skip_all,ret, err, fields(client_handle_id = Ulid::new().to_string()))]
+    async fn client_handle(mut self) -> anyhow::Result<()> {
         info!("Connect from {}", self.upstream_address);
 
         let socks5 = NoAuthHandshake::new(self.local, self.upstream_address);

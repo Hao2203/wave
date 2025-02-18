@@ -29,7 +29,7 @@ async fn test() {
 
     let proxy = WaveProxy::new("127.0.0.1:8183".parse().unwrap());
     let socks5_addr = proxy.socks5_addr();
-    let node_id = spawn_wave(router, proxy).await.unwrap();
+    let _ = spawn_wave(router, proxy).await.unwrap();
     let res = get_http_response(socks5_addr, node_id, http_server_addr.port())
         .await
         .unwrap();
@@ -89,7 +89,6 @@ async fn get_http_response(
         .timeout(std::time::Duration::from_secs(20))
         .build()?;
 
-    println!("node_id: {}", node_id);
     let res = http_client
         .get(format!("http://{}:{}", node_id, http_server_port))
         .send()

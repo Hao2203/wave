@@ -15,6 +15,7 @@ mod tests;
 
 pub const ALPN: &[u8] = b"wave";
 
+#[derive(Debug)]
 pub enum Stream {
     Iroh(SendStream, RecvStream),
     Tcp(TcpStream),

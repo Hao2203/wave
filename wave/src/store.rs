@@ -14,7 +14,7 @@ impl Store {
     const CONFIG: &str = "config";
 
     pub fn from_path(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let database = Database::open(path)?;
+        let database = Database::create(path)?;
         let tx = database.begin_write()?;
         {
             let _ = tx.open_table(Self::METADATA_TABLE)?;
